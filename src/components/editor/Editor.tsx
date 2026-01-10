@@ -297,19 +297,48 @@ export function Editor({
     return texts;
   }, [editor]);
 
+  // Get all comment data including position (for sorting by location)
+  const getAllCommentData = useCallback((): Record<string, { text: string; position: number }> => {
+    if (!editor) return {};
+
+    const { doc } = editor.state;
+    const data: Record<string, { text: string; position: number }> = {};
+
+    doc.descendants((node, pos) => {
+      if (node.isText && node.marks) {
+        node.marks.forEach((mark) => {
+          if (mark.type.name === "comment" && mark.attrs.commentId) {
+            const id = mark.attrs.commentId;
+            if (!data[id]) {
+              // First occurrence - store position
+              data[id] = { text: node.text || "", position: pos };
+            } else {
+              // Subsequent occurrences - append text, keep first position
+              data[id].text += node.text || "";
+            }
+          }
+        });
+      }
+    });
+
+    return data;
+  }, [editor]);
+
   // Expose methods via window for CommentPanel to call
   useEffect(() => {
     (window as any).__editorApplyCommentMark = applyCommentMark;
     (window as any).__editorRemoveCommentMark = removeCommentMark;
     (window as any).__editorGetCommentText = getCommentText;
     (window as any).__editorGetAllCommentTexts = getAllCommentTexts;
+    (window as any).__editorGetAllCommentData = getAllCommentData;
     return () => {
       delete (window as any).__editorApplyCommentMark;
       delete (window as any).__editorRemoveCommentMark;
       delete (window as any).__editorGetCommentText;
       delete (window as any).__editorGetAllCommentTexts;
+      delete (window as any).__editorGetAllCommentData;
     };
-  }, [applyCommentMark, removeCommentMark, getCommentText, getAllCommentTexts]);
+  }, [applyCommentMark, removeCommentMark, getCommentText, getAllCommentTexts, getAllCommentData]);
 
   // Add comment from selected text
   const handleAddCommentClick = () => {

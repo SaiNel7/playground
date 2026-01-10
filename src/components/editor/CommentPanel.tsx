@@ -35,24 +35,24 @@ export function CommentPanel({
   onCancelPending,
 }: CommentPanelProps) {
   const [comments, setComments] = useState<Comment[]>([]);
-  const [liveTexts, setLiveTexts] = useState<Record<string, string>>({});
+  const [commentData, setCommentData] = useState<Record<string, { text: string; position: number }>>({});
   const [newCommentText, setNewCommentText] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Get live texts from the editor and clean up orphaned comments
-  const refreshLiveTexts = useCallback(() => {
-    const getAllTexts = (window as any).__editorGetAllCommentTexts;
-    if (!getAllTexts) return;
+  // Get live data (text + position) from the editor and clean up orphaned comments
+  const refreshCommentData = useCallback(() => {
+    const getAllData = (window as any).__editorGetAllCommentData;
+    if (!getAllData) return;
 
-    const texts = getAllTexts();
-    setLiveTexts(texts);
+    const data = getAllData();
+    setCommentData(data);
 
     // Check for orphaned comments (exist in storage but not in editor)
     const storedComments = getDocumentComments(documentId);
     const orphanedComments = storedComments.filter(
-      (comment) => !texts[comment.id]
+      (comment) => !data[comment.id]
     );
 
     // Delete orphaned comments
@@ -66,13 +66,13 @@ export function CommentPanel({
     }
   }, [documentId, onDeleteComment]);
 
-  // Load comments and live texts
+  // Load comments and position data
   const loadComments = useCallback(() => {
     const docs = getDocumentComments(documentId);
     setComments(docs);
     // Small delay to ensure editor has updated
-    setTimeout(refreshLiveTexts, 50);
-  }, [documentId, refreshLiveTexts]);
+    setTimeout(refreshCommentData, 50);
+  }, [documentId, refreshCommentData]);
 
   // Load comments when panel opens
   useEffect(() => {
@@ -81,13 +81,20 @@ export function CommentPanel({
     }
   }, [isOpen, documentId, loadComments]);
 
-  // Refresh live texts periodically while panel is open (to catch edits)
+  // Refresh comment data periodically while panel is open (to catch edits)
   useEffect(() => {
     if (!isOpen) return;
 
-    const interval = setInterval(refreshLiveTexts, 500);
+    const interval = setInterval(refreshCommentData, 500);
     return () => clearInterval(interval);
-  }, [isOpen, refreshLiveTexts]);
+  }, [isOpen, refreshCommentData]);
+
+  // Sort comments by their position in the document
+  const sortedComments = [...comments].sort((a, b) => {
+    const posA = commentData[a.id]?.position ?? Infinity;
+    const posB = commentData[b.id]?.position ?? Infinity;
+    return posA - posB;
+  });
 
   // Focus input when pending comment exists
   useEffect(() => {
@@ -98,9 +105,9 @@ export function CommentPanel({
 
   // Get the display text for a comment (live from editor, or fallback to stored)
   const getDisplayText = (comment: Comment): string => {
-    const liveText = liveTexts[comment.id];
+    const data = commentData[comment.id];
     // Use live text if available, otherwise fall back to stored
-    return liveText || comment.highlightedText;
+    return data?.text || comment.highlightedText;
   };
 
   // Handle adding a new comment
@@ -231,8 +238,8 @@ export function CommentPanel({
           </div>
         )}
 
-        {/* Comments list */}
-        {comments.length === 0 && !pendingComment ? (
+        {/* Comments list - sorted by position in document */}
+        {sortedComments.length === 0 && !pendingComment ? (
           <div className="p-8 text-center">
             <MessageSquare className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">No comments yet</p>
@@ -242,7 +249,7 @@ export function CommentPanel({
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {comments.map((comment) => {
+            {sortedComments.map((comment) => {
               const displayText = getDisplayText(comment);
               return (
                 <div
