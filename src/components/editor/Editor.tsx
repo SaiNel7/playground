@@ -14,18 +14,126 @@ import {
   ListOrdered,
   Quote,
   Code,
+  MessageSquarePlus,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getDocument, updateDocument } from "@/lib/store/documentStore";
+import { getDocumentComments, deleteComment } from "@/lib/store/commentStore";
 
 interface EditorProps {
   documentId: string;
-  onUpdate?: () => void; // Callback when content changes (for parent to update timestamp)
+  onUpdate?: () => void;
+  // Comment panel props (lifted state)
+  isCommentPanelOpen: boolean;
+  onToggleCommentPanel: () => void;
+  onAddCommentFromSelection: (text: string) => void;
+  onCommentClick: (commentId: string) => void;
+  onCommentAdded: () => void;
+  onCommentDeleted: (commentId: string) => void;
+  commentCount: number;
+  pendingComment: { text: string } | null;
 }
 
-export function Editor({ documentId, onUpdate }: EditorProps) {
+export function Editor({
+  documentId,
+  onUpdate,
+  isCommentPanelOpen,
+  onToggleCommentPanel,
+  onAddCommentFromSelection,
+  onCommentClick,
+  onCommentAdded,
+  onCommentDeleted,
+  commentCount,
+  pendingComment,
+}: EditorProps) {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef(false);
+  const cleanupTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const editor = useEditor({
+    extensions: editorExtensions,
+    content: "",
+    editorProps: {
+      attributes: {
+        class: "tiptap-editor",
+      },
+      handleClick: (view, pos, event) => {
+        // Check if clicking on a comment highlight
+        const target = event.target as HTMLElement;
+        if (target.classList.contains("comment-highlight")) {
+          const commentId = target.getAttribute("data-comment-id");
+          if (commentId) {
+            onCommentClick(commentId);
+            return true;
+          }
+        }
+        return false;
+      },
+    },
+    immediatelyRender: false,
+  });
+
+  // Clean up orphaned marks (marks referencing deleted comments)
+  const cleanupOrphanedMarks = useCallback(() => {
+    if (!editor) return;
+
+    const { doc, tr } = editor.state;
+    const storedComments = getDocumentComments(documentId);
+    const validCommentIds = new Set(storedComments.map((c) => c.id));
+
+    let hasChanges = false;
+
+    // Find marks with comment IDs that don't exist in storage
+    doc.descendants((node, pos) => {
+      if (node.isText && node.marks) {
+        node.marks.forEach((mark) => {
+          if (mark.type.name === "comment" && mark.attrs.commentId) {
+            if (!validCommentIds.has(mark.attrs.commentId)) {
+              // Remove this orphaned mark
+              tr.removeMark(pos, pos + node.nodeSize, mark.type);
+              hasChanges = true;
+            }
+          }
+        });
+      }
+    });
+
+    if (hasChanges) {
+      editor.view.dispatch(tr);
+    }
+  }, [editor, documentId]);
+
+  // Clean up orphaned comments (comments without text in editor)
+  const cleanupOrphanedComments = useCallback(() => {
+    if (!editor) return;
+
+    const { doc } = editor.state;
+    const activeCommentIds = new Set<string>();
+
+    // Find all comment IDs that exist in the editor
+    doc.descendants((node) => {
+      if (node.isText && node.marks) {
+        node.marks.forEach((mark) => {
+          if (mark.type.name === "comment" && mark.attrs.commentId) {
+            activeCommentIds.add(mark.attrs.commentId);
+          }
+        });
+      }
+    });
+
+    // Find and delete orphaned comments
+    const storedComments = getDocumentComments(documentId);
+    storedComments.forEach((comment) => {
+      if (!activeCommentIds.has(comment.id)) {
+        deleteComment(comment.id);
+        onCommentDeleted(comment.id);
+      }
+    });
+
+    // Also clean up any orphaned marks
+    cleanupOrphanedMarks();
+  }, [editor, documentId, onCommentDeleted, cleanupOrphanedMarks]);
 
   // Debounced save function
   const saveContent = useCallback(
@@ -37,30 +145,41 @@ export function Editor({ documentId, onUpdate }: EditorProps) {
       saveTimeoutRef.current = setTimeout(() => {
         updateDocument(documentId, { content });
         onUpdate?.();
-      }, 600); // 600ms debounce
+      }, 600);
+
+      // Debounced cleanup of orphaned comments
+      if (cleanupTimeoutRef.current) {
+        clearTimeout(cleanupTimeoutRef.current);
+      }
+      cleanupTimeoutRef.current = setTimeout(() => {
+        cleanupOrphanedComments();
+      }, 800);
     },
-    [documentId, onUpdate]
+    [documentId, onUpdate, cleanupOrphanedComments]
   );
 
-  const editor = useEditor({
-    extensions: editorExtensions,
-    content: "",
-    editorProps: {
-      attributes: {
-        class: "tiptap-editor",
-      },
-    },
-    immediatelyRender: false,
-    onUpdate: ({ editor }) => {
-      // Only save after initial load
+  // Handle editor updates
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleUpdate = () => {
       if (isInitializedRef.current) {
+        // Immediately clean up any orphaned marks (marks without valid comments)
+        // This catches the case where new text inherits an orphaned mark
+        cleanupOrphanedMarks();
+
         const json = editor.getJSON();
         saveContent(json);
       }
-    },
-  });
+    };
 
-  // Load document content on mount or when documentId changes
+    editor.on("update", handleUpdate);
+    return () => {
+      editor.off("update", handleUpdate);
+    };
+  }, [editor, saveContent, cleanupOrphanedMarks]);
+
+  // Load document content on mount
   useEffect(() => {
     if (!editor) return;
 
@@ -73,20 +192,142 @@ export function Editor({ documentId, onUpdate }: EditorProps) {
       editor.commands.clearContent();
     }
 
-    // Mark as initialized after a tick to avoid saving the loaded content
     setTimeout(() => {
       isInitializedRef.current = true;
     }, 0);
   }, [editor, documentId]);
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      if (cleanupTimeoutRef.current) {
+        clearTimeout(cleanupTimeoutRef.current);
+      }
     };
   }, []);
+
+  // Apply comment mark when pending comment is added
+  const applyCommentMark = useCallback(
+    (commentId: string) => {
+      if (!editor) return;
+      editor.chain().focus().setComment(commentId).run();
+      onCommentAdded();
+    },
+    [editor, onCommentAdded]
+  );
+
+  // Remove comment mark when comment is deleted
+  const removeCommentMark = useCallback(
+    (commentId: string) => {
+      if (!editor) return;
+
+      const { doc } = editor.state;
+      let foundFrom = -1;
+      let foundTo = -1;
+
+      doc.descendants((node, pos) => {
+        if (node.marks) {
+          node.marks.forEach((mark) => {
+            if (mark.type.name === "comment" && mark.attrs.commentId === commentId) {
+              foundFrom = pos;
+              foundTo = pos + node.nodeSize;
+            }
+          });
+        }
+      });
+
+      if (foundFrom !== -1) {
+        editor
+          .chain()
+          .focus()
+          .setTextSelection({ from: foundFrom, to: foundTo })
+          .unsetComment()
+          .run();
+      }
+
+      onCommentDeleted(commentId);
+    },
+    [editor, onCommentDeleted]
+  );
+
+  // Get current text for a comment from the editor (live, not stored)
+  const getCommentText = useCallback(
+    (commentId: string): string | null => {
+      if (!editor) return null;
+
+      const { doc } = editor.state;
+      let text = "";
+
+      doc.descendants((node, pos) => {
+        if (node.isText && node.marks) {
+          node.marks.forEach((mark) => {
+            if (mark.type.name === "comment" && mark.attrs.commentId === commentId) {
+              text += node.text || "";
+            }
+          });
+        }
+      });
+
+      return text || null;
+    },
+    [editor]
+  );
+
+  // Get all comment texts from the editor (for batch updates)
+  const getAllCommentTexts = useCallback((): Record<string, string> => {
+    if (!editor) return {};
+
+    const { doc } = editor.state;
+    const texts: Record<string, string> = {};
+
+    doc.descendants((node, pos) => {
+      if (node.isText && node.marks) {
+        node.marks.forEach((mark) => {
+          if (mark.type.name === "comment" && mark.attrs.commentId) {
+            const id = mark.attrs.commentId;
+            texts[id] = (texts[id] || "") + (node.text || "");
+          }
+        });
+      }
+    });
+
+    return texts;
+  }, [editor]);
+
+  // Expose methods via window for CommentPanel to call
+  useEffect(() => {
+    (window as any).__editorApplyCommentMark = applyCommentMark;
+    (window as any).__editorRemoveCommentMark = removeCommentMark;
+    (window as any).__editorGetCommentText = getCommentText;
+    (window as any).__editorGetAllCommentTexts = getAllCommentTexts;
+    return () => {
+      delete (window as any).__editorApplyCommentMark;
+      delete (window as any).__editorRemoveCommentMark;
+      delete (window as any).__editorGetCommentText;
+      delete (window as any).__editorGetAllCommentTexts;
+    };
+  }, [applyCommentMark, removeCommentMark, getCommentText, getAllCommentTexts]);
+
+  // Add comment from selected text
+  const handleAddCommentClick = () => {
+    if (!editor) return;
+
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      // No selection, just toggle panel
+      onToggleCommentPanel();
+      return;
+    }
+
+    const selectedText = editor.state.doc.textBetween(from, to);
+    onAddCommentFromSelection(selectedText);
+  };
+
+  // Check if there's a text selection
+  const hasSelection = editor ? editor.state.selection.from !== editor.state.selection.to : false;
 
   if (!editor) {
     return (
@@ -177,6 +418,28 @@ export function Editor({ documentId, onUpdate }: EditorProps) {
             title="Code Block"
           >
             <Code className="w-4 h-4" />
+          </ToolbarButton>
+
+          <ToolbarDivider />
+
+          {/* Comment button - toggles panel or adds comment from selection */}
+          <ToolbarButton
+            onClick={handleAddCommentClick}
+            isActive={isCommentPanelOpen}
+            title={hasSelection ? "Add comment to selection" : "Toggle comments"}
+          >
+            {hasSelection ? (
+              <MessageSquarePlus className="w-4 h-4" />
+            ) : (
+              <div className="relative">
+                <MessageSquare className="w-4 h-4" />
+                {commentCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-foreground text-background text-[10px] rounded-full flex items-center justify-center">
+                    {commentCount > 9 ? "9+" : commentCount}
+                  </span>
+                )}
+              </div>
+            )}
           </ToolbarButton>
         </div>
       </div>

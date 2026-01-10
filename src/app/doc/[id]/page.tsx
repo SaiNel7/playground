@@ -3,11 +3,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Topbar } from "@/components/layout/Topbar";
 import { Editor } from "@/components/editor/Editor";
+import { CommentPanel } from "@/components/editor/CommentPanel";
 import {
   getDocument,
   createDocument,
   updateDocument,
 } from "@/lib/store/documentStore";
+import { getDocumentComments } from "@/lib/store/commentStore";
 import { Document } from "@/lib/types";
 
 interface DocPageProps {
@@ -22,6 +24,18 @@ export default function DocPage({ params }: DocPageProps) {
   const [lastEdited, setLastEdited] = useState<number | null>(null);
   const titleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Comment panel state (lifted from Editor)
+  const [isCommentPanelOpen, setIsCommentPanelOpen] = useState(false);
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+  const [pendingComment, setPendingComment] = useState<{ text: string } | null>(null);
+  const [commentCount, setCommentCount] = useState(0);
+
+  // Load comment count
+  const loadCommentCount = useCallback(() => {
+    const comments = getDocumentComments(params.id);
+    setCommentCount(comments.length);
+  }, [params.id]);
+
   // Load or create document on mount
   useEffect(() => {
     let doc = getDocument(params.id);
@@ -34,7 +48,8 @@ export default function DocPage({ params }: DocPageProps) {
     setDocument(doc);
     setTitle(doc.title);
     setLastEdited(doc.updatedAt);
-  }, [params.id]);
+    loadCommentCount();
+  }, [params.id, loadCommentCount]);
 
   // Debounced title save
   const saveTitle = useCallback(
@@ -61,6 +76,49 @@ export default function DocPage({ params }: DocPageProps) {
   // Handle editor content update
   const handleEditorUpdate = useCallback(() => {
     setLastEdited(Date.now());
+  }, []);
+
+  // Toggle comment panel
+  const toggleCommentPanel = useCallback(() => {
+    setIsCommentPanelOpen((prev) => !prev);
+    if (isCommentPanelOpen) {
+      // Closing - clear selection and pending
+      setSelectedCommentId(null);
+      setPendingComment(null);
+    }
+  }, [isCommentPanelOpen]);
+
+  // Close comment panel
+  const closeCommentPanel = useCallback(() => {
+    setIsCommentPanelOpen(false);
+    setSelectedCommentId(null);
+    setPendingComment(null);
+  }, []);
+
+  // Handle adding comment from selection
+  const handleAddCommentFromSelection = useCallback((text: string) => {
+    setPendingComment({ text });
+    setIsCommentPanelOpen(true);
+  }, []);
+
+  // Handle comment added
+  const handleCommentAdded = useCallback(() => {
+    setPendingComment(null);
+    loadCommentCount();
+  }, [loadCommentCount]);
+
+  // Handle comment deleted
+  const handleCommentDeleted = useCallback((commentId: string) => {
+    if (selectedCommentId === commentId) {
+      setSelectedCommentId(null);
+    }
+    loadCommentCount();
+  }, [selectedCommentId, loadCommentCount]);
+
+  // Handle clicking a comment highlight
+  const handleCommentClick = useCallback((commentId: string) => {
+    setSelectedCommentId(commentId);
+    setIsCommentPanelOpen(true);
   }, []);
 
   // Cleanup timeout on unmount
@@ -104,30 +162,57 @@ export default function DocPage({ params }: DocPageProps) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <Topbar title={title || "Untitled"} />
+    <div className="flex h-full">
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Topbar title={title || "Untitled"} />
 
-      <div className="flex-1 overflow-auto">
-        {/* Document header with large editable title */}
-        <div className="max-w-3xl mx-auto px-16 pt-16 pb-4">
-          <input
-            type="text"
-            value={title}
-            onChange={handleTitleChange}
-            placeholder="Untitled"
-            className="w-full text-4xl font-bold text-foreground bg-transparent outline-none placeholder:text-muted-foreground/40"
-            spellCheck={false}
-          />
+        <div className="flex-1 overflow-auto">
+          {/* Document header with large editable title */}
+          <div className="max-w-3xl mx-auto w-full px-16 pt-16 pb-4">
+            <input
+              type="text"
+              value={title}
+              onChange={handleTitleChange}
+              placeholder="Untitled"
+              className="w-full text-4xl font-bold text-foreground bg-transparent outline-none placeholder:text-muted-foreground/40"
+              spellCheck={false}
+            />
 
-          {/* Last edited indicator */}
-          <div className="mt-3 text-xs text-muted-foreground/60">
-            {formatLastEdited(lastEdited)}
+            {/* Last edited indicator */}
+            <div className="mt-3 text-xs text-muted-foreground/60">
+              {formatLastEdited(lastEdited)}
+            </div>
           </div>
-        </div>
 
-        {/* Editor */}
-        <Editor documentId={params.id} onUpdate={handleEditorUpdate} />
+          {/* Editor */}
+          <Editor
+            documentId={params.id}
+            onUpdate={handleEditorUpdate}
+            isCommentPanelOpen={isCommentPanelOpen}
+            onToggleCommentPanel={toggleCommentPanel}
+            onAddCommentFromSelection={handleAddCommentFromSelection}
+            onCommentClick={handleCommentClick}
+            onCommentAdded={handleCommentAdded}
+            onCommentDeleted={handleCommentDeleted}
+            commentCount={commentCount}
+            pendingComment={pendingComment}
+          />
+        </div>
       </div>
+
+      {/* Comment panel (outside main content, affects full height) */}
+      <CommentPanel
+        documentId={params.id}
+        isOpen={isCommentPanelOpen}
+        onClose={closeCommentPanel}
+        selectedCommentId={selectedCommentId}
+        onSelectComment={setSelectedCommentId}
+        pendingComment={pendingComment}
+        onAddComment={handleCommentAdded}
+        onDeleteComment={handleCommentDeleted}
+        onCancelPending={() => setPendingComment(null)}
+      />
     </div>
   );
 }

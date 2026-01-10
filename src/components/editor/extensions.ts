@@ -4,6 +4,7 @@ import { ReactRenderer } from "@tiptap/react";
 import { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import { SlashCommands, filterCommands } from "./slashCommands";
 import { CommandMenu, CommandMenuRef, CommandItem } from "./CommandMenu";
+import { CommentMark } from "./commentMark";
 
 // Create suggestion render function for React
 function createSuggestionRender() {
@@ -119,4 +120,5 @@ export const editorExtensions = [
       render: createSuggestionRender,
     },
   }),
+  CommentMark,
 ];

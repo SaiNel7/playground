@@ -168,3 +168,20 @@
 .tiptap-editor:focus {
   outline: none;
 }
+
+/* Comment highlight */
+.tiptap-editor .comment-highlight {
+  background: hsl(48 100% 88% / 0.6);
+  border-bottom: 2px solid hsl(48 100% 50%);
+  padding: 1px 0;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tiptap-editor .comment-highlight:hover {
+  background: hsl(48 100% 80% / 0.8);
+}
+
+.tiptap-editor .comment-highlight.active {
+  background: hsl(48 100% 75% / 0.9);
+}
