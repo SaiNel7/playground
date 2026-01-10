@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { editorExtensions } from "./extensions";
+import { SelectionBubble } from "./SelectionBubble";
 import "./editor.css";
 import {
   Bold,
@@ -14,7 +15,6 @@ import {
   ListOrdered,
   Quote,
   Code,
-  MessageSquarePlus,
   MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -340,23 +340,18 @@ export function Editor({
     };
   }, [applyCommentMark, removeCommentMark, getCommentText, getAllCommentTexts, getAllCommentData]);
 
-  // Add comment from selected text
-  const handleAddCommentClick = () => {
-    if (!editor) return;
-
-    const { from, to } = editor.state.selection;
-    if (from === to) {
-      // No selection, just toggle panel
-      onToggleCommentPanel();
-      return;
-    }
-
-    const selectedText = editor.state.doc.textBetween(from, to);
-    onAddCommentFromSelection(selectedText);
+  // Toggle comment panel (for toolbar button)
+  const handleToggleCommentClick = () => {
+    onToggleCommentPanel();
   };
 
-  // Check if there's a text selection
-  const hasSelection = editor ? editor.state.selection.from !== editor.state.selection.to : false;
+  // Handle comment from floating bubble
+  const handleBubbleComment = useCallback(
+    (text: string) => {
+      onAddCommentFromSelection(text);
+    },
+    [onAddCommentFromSelection]
+  );
 
   if (!editor) {
     return (
@@ -451,30 +446,29 @@ export function Editor({
 
           <ToolbarDivider />
 
-          {/* Comment button - toggles panel or adds comment from selection */}
+          {/* Comment button - toggles panel */}
           <ToolbarButton
-            onClick={handleAddCommentClick}
+            onClick={handleToggleCommentClick}
             isActive={isCommentPanelOpen}
-            title={hasSelection ? "Add comment to selection" : "Toggle comments"}
+            title="Toggle comments"
           >
-            {hasSelection ? (
-              <MessageSquarePlus className="w-4 h-4" />
-            ) : (
-              <div className="relative">
-                <MessageSquare className="w-4 h-4" />
-                {commentCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-foreground text-background text-[10px] rounded-full flex items-center justify-center">
-                    {commentCount > 9 ? "9+" : commentCount}
-                  </span>
-                )}
-              </div>
-            )}
+            <div className="relative">
+              <MessageSquare className="w-4 h-4" />
+              {commentCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-foreground text-background text-[10px] rounded-full flex items-center justify-center">
+                  {commentCount > 9 ? "9+" : commentCount}
+                </span>
+              )}
+            </div>
           </ToolbarButton>
         </div>
       </div>
 
       {/* Editor content */}
       <EditorContent editor={editor} />
+
+      {/* Floating selection bubble for comments */}
+      <SelectionBubble editor={editor} onAddComment={handleBubbleComment} />
     </div>
   );
 }

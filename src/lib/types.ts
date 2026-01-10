@@ -9,23 +9,24 @@ export type Document = {
 
 export type DocumentListItem = Pick<Document, "id" | "title" | "updatedAt">;
 
-// Comment system types
-export type Comment = {
+// Comment thread system types
+export type CommentMessage = {
   id: string;
-  documentId: string;
   content: string;
-  highlightedText: string; // The text that was highlighted when creating the comment
+  author: string;
   createdAt: number;
   updatedAt: number;
 };
 
 export type CommentThread = {
-  commentId: string;
-  replies: CommentReply[];
+  id: string;
+  documentId: string;
+  highlightedText: string; // The text that was highlighted when creating the thread
+  messages: CommentMessage[];
+  resolved: boolean;
+  createdAt: number;
+  updatedAt: number;
 };
 
-export type CommentReply = {
-  id: string;
-  content: string;
-  createdAt: number;
-};
+// Legacy alias for compatibility
+export type Comment = CommentThread;
