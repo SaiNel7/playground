@@ -157,12 +157,9 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
       <div className="p-3 border-b border-border">
         <Link
           href="/"
-          className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer transition-colors"
+          className="flex items-center px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer transition-colors inline-block"
         >
-          <div className="w-5 h-5 rounded bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white text-xs font-semibold">
-            P
-          </div>
-          <span className="text-sm font-medium text-foreground">Playground</span>
+          <span className="text-sm font-medium text-foreground">PLAYGROUND</span>
         </Link>
       </div>
 
@@ -174,7 +171,7 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
         >
           <span className="flex items-center gap-2">
             <Search className="w-4 h-4" />
-            <span>Quick Switch</span>
+            <span> Search  </span>
           </span>
           <kbd className="text-xs bg-muted px-1.5 py-0.5 rounded">⌘K</kbd>
         </button>
