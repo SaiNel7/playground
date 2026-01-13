@@ -30,9 +30,13 @@ import {
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { useEditorContext } from "@/lib/EditorContext";
 import { AskAIComposer } from "@/components/ai/AskAIComposer";
+import { PatchCard } from "@/components/ai/PatchCard";
 import { buildContextPack } from "@/lib/contextExtractor";
 import { getBrain } from "@/lib/store/brainStore";
+import { getPatches, getOpenPatchByAnchor, createPatch, updatePatch } from "@/lib/store/patchStore";
+import { findAnchorRange } from "@/lib/anchors/findAnchorRange";
 import type { AskAIMode, AskAIRequest, AskAIResponse } from "@/lib/ai/schema";
+import type { AIPatch } from "@/lib/types";
 
 interface CommentPanelProps {
   documentId: string;
@@ -72,6 +76,16 @@ export function CommentPanel({
     new Set()
   );
   const [aiLoading, setAILoading] = useState<Record<string, boolean>>({});
+  const [patches, setPatches] = useState<Record<string, AIPatch>>({});
+  const [panelWidth, setPanelWidth] = useState(() => {
+    // Load saved width from localStorage, default to 320px (w-80)
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('playground:commentPanelWidth');
+      return saved ? parseInt(saved, 10) : 320;
+    }
+    return 320;
+  });
+  const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { editorMethods } = useEditorContext();
 
@@ -98,6 +112,16 @@ export function CommentPanel({
     }
   }, [documentId, onDeleteComment, editorMethods]);
 
+  // Load patches for all threads
+  const loadPatches = useCallback(() => {
+    const allPatches = getPatches(documentId);
+    const patchMap: Record<string, AIPatch> = {};
+    allPatches.forEach((patch) => {
+      patchMap[patch.anchorId] = patch;
+    });
+    setPatches(patchMap);
+  }, [documentId]);
+
   // Load threads and position data
   const loadThreads = useCallback(() => {
     const docs = getDocumentComments(documentId);
@@ -112,6 +136,13 @@ export function CommentPanel({
       loadThreads();
     }
   }, [isOpen, documentId, loadThreads]);
+
+  // Load patches when threads change
+  useEffect(() => {
+    if (isOpen && threads.length > 0) {
+      loadPatches();
+    }
+  }, [isOpen, threads, loadPatches]);
 
   // Refresh comment data periodically while panel is open (to catch edits)
   useEffect(() => {
@@ -133,6 +164,7 @@ export function CommentPanel({
   const aiThreadsAwaitingPrompt = sortedThreads.filter((t) => t.isAIThread && t.messages.length === 0);
   const unresolvedThreads = sortedThreads.filter((t) => !t.resolved && !(t.isAIThread && t.messages.length === 0));
   const resolvedThreads = sortedThreads.filter((t) => t.resolved);
+
 
   // Focus input when pending comment exists
   useEffect(() => {
@@ -251,8 +283,84 @@ export function CommentPanel({
     onCancelPending();
   };
 
+  // Handle accepting a patch
+  const handleAcceptPatch = useCallback((threadId: string, patch: AIPatch) => {
+    const editor = editorMethods?.getEditorInstance();
+    if (!editor) {
+      console.error("[Patch] Editor instance not available");
+      return;
+    }
+
+    // First try to find the range via comment mark
+    let range = findAnchorRange(editor, threadId);
+
+    // If no mark found, search for the original text in the document
+    if (!range) {
+      const docText = editor.getText();
+      const searchText = patch.originalText.trim();
+      const index = docText.indexOf(searchText);
+
+      if (index !== -1) {
+        // Convert character index to ProseMirror position
+        range = { from: index + 1, to: index + 1 + searchText.length };
+      } else {
+        console.error("[Patch] Could not find original text in document");
+        alert("Could not find the original text in the document. It may have been edited.");
+        return;
+      }
+    }
+
+    // Replace the text with proposedText
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: range.from, to: range.to })
+      .insertContent(patch.proposedText)
+      .unsetComment()
+      .run();
+
+    // Update patch status and mark thread as resolved
+    updatePatch(documentId, patch.id, { status: "accepted" });
+    toggleResolveThread(threadId);
+
+    // Reload patches to update UI
+    loadPatches();
+    loadThreads();
+  }, [documentId, editorMethods, loadThreads, loadPatches]);
+
+  // Handle rejecting a patch
+  const handleRejectPatch = useCallback((threadId: string, patch: AIPatch) => {
+    const editor = editorMethods?.getEditorInstance();
+    if (!editor) {
+      console.error("[Patch] Editor instance not available");
+      return;
+    }
+
+    // Find and remove the comment mark (optional but recommended)
+    const range = findAnchorRange(editor, threadId);
+    if (range) {
+      editor
+        .chain()
+        .focus()
+        .setTextSelection({ from: range.from, to: range.to })
+        .unsetComment()
+        .run();
+    }
+
+    // Update patch status to rejected
+    updatePatch(documentId, patch.id, { status: "rejected" });
+
+    // Mark the thread as resolved
+    toggleResolveThread(threadId);
+
+    // Reload patches to update UI
+    loadPatches();
+    loadThreads();
+  }, [documentId, editorMethods, loadThreads, loadPatches]);
+
   // Handle sending AI prompt
   const handleSendAIPrompt = useCallback(async (threadId: string, prompt: string, mode: AskAIMode) => {
+    console.log("[CommentPanel] handleSendAIPrompt called:", { threadId, promptLength: prompt.length, mode });
     try {
       // Get editor instance
       const editor = editorMethods?.getEditorInstance();
@@ -275,6 +383,9 @@ export function CommentPanel({
         setAILoading((prev) => ({ ...prev, [threadId]: false }));
         return;
       }
+
+      // Reload threads to show the pending message
+      loadThreads();
 
       // Build context pack
       const contextPack = buildContextPack(editor, { includeFullDoc: false });
@@ -309,18 +420,35 @@ export function CommentPanel({
 
       const data: AskAIResponse = await response.json();
 
+      // Get the thread BEFORE reloading (to access highlightedText)
+      const thread = threads.find((t) => t.id === threadId);
+
       // Update AI message with response
       updateAIMessage(threadId, aiMessage.id, data.message, "complete");
       loadThreads();
+
+      // If proposedText is provided (synthesize mode), create a patch
+      if (data.proposedText && mode === "synthesize" && thread) {
+        createPatch({
+          documentId,
+          anchorId: threadId,
+          originalText: thread.highlightedText,
+          proposedText: data.proposedText,
+        });
+        loadPatches();
+      }
     } catch (error: any) {
-      console.error("[AI] Error:", error);
+      console.error("[AI] Request failed:", error);
 
       // Find the AI message to update with error
       const thread = threads.find((t) => t.id === threadId);
       if (thread) {
         const aiMsg = thread.messages.find((m) => m.author === "ai" && m.status === "pending");
         if (aiMsg) {
-          updateAIMessage(threadId, aiMsg.id, "Sorry—AI request failed. Please try again.", "error");
+          const errorMessage = error.message?.includes("API returned")
+            ? `AI request failed (${error.message}). Please check your API key and try again.`
+            : "AI request failed. Please try again.";
+          updateAIMessage(threadId, aiMsg.id, errorMessage, "error");
           loadThreads();
         }
       }
@@ -329,10 +457,66 @@ export function CommentPanel({
     }
   }, [documentId, editorMethods, threads, loadThreads]);
 
+  // Handle resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+
+    // Calculate new width based on distance from right edge of viewport
+    const newWidth = window.innerWidth - e.clientX;
+
+    // Constrain width between 280px (min) and 800px (max)
+    const constrainedWidth = Math.min(Math.max(newWidth, 280), 800);
+    setPanelWidth(constrainedWidth);
+  }, [isResizing]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  // Add global mouse event listeners for resize
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+
+  // Save panel width to localStorage when it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('playground:commentPanelWidth', panelWidth.toString());
+    }
+  }, [panelWidth]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="w-80 h-full border-l border-border bg-background flex flex-col flex-shrink-0 overflow-hidden">
+    <div
+      className="h-full border-l border-border bg-background flex flex-col flex-shrink-0 overflow-hidden relative"
+      style={{ width: `${panelWidth}px` }}
+    >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute left-0 top-0 bottom-0 w-3 -ml-1.5 cursor-col-resize z-10 group"
+        title="Drag to resize"
+      >
+        {/* Thin visual indicator */}
+        <div className={cn(
+          "absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-purple-400 transition-colors",
+          isResizing && "bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.4)]"
+        )} />
+      </div>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2">
@@ -445,16 +629,19 @@ export function CommentPanel({
         {/* Unresolved threads */}
         {unresolvedThreads.length > 0 && (
           <div className="divide-y divide-border">
-            {unresolvedThreads.map((thread) => (
-              <ThreadCard
-                key={thread.id}
-                thread={thread}
-                displayText={getDisplayText(thread)}
-                isSelected={selectedCommentId === thread.id}
-                isExpanded={expandedThreads.has(thread.id)}
-                replyText={replyText[thread.id] || ""}
-                editingMessage={editingMessage}
-                editText={editText}
+            {unresolvedThreads.map((thread) => {
+              const threadPatch = patches[thread.id] || null;
+              return (
+                <ThreadCard
+                  key={thread.id}
+                  thread={thread}
+                  displayText={getDisplayText(thread)}
+                  isSelected={selectedCommentId === thread.id}
+                  isExpanded={expandedThreads.has(thread.id)}
+                  replyText={replyText[thread.id] || ""}
+                  editingMessage={editingMessage}
+                  editText={editText}
+                  patch={threadPatch}
                 onSelect={() => onSelectComment(thread.id)}
                 onToggleExpand={() => toggleExpanded(thread.id)}
                 onReplyTextChange={(text) =>
@@ -468,8 +655,11 @@ export function CommentPanel({
                 onDeleteMessage={handleDeleteMessage}
                 onDeleteThread={handleDeleteThread}
                 onToggleResolve={handleToggleResolve}
+                onAcceptPatch={handleAcceptPatch}
+                onRejectPatch={handleRejectPatch}
               />
-            ))}
+            );
+            })}
           </div>
         )}
 
@@ -492,6 +682,7 @@ export function CommentPanel({
                   replyText={replyText[thread.id] || ""}
                   editingMessage={editingMessage}
                   editText={editText}
+                  patch={patches[thread.id] || null}
                   onSelect={() => onSelectComment(thread.id)}
                   onToggleExpand={() => toggleExpanded(thread.id)}
                   onReplyTextChange={(text) =>
@@ -505,6 +696,8 @@ export function CommentPanel({
                   onDeleteMessage={handleDeleteMessage}
                   onDeleteThread={handleDeleteThread}
                   onToggleResolve={handleToggleResolve}
+                  onAcceptPatch={handleAcceptPatch}
+                  onRejectPatch={handleRejectPatch}
                 />
               ))}
             </div>
@@ -524,6 +717,7 @@ interface ThreadCardProps {
   replyText: string;
   editingMessage: { threadId: string; messageId: string } | null;
   editText: string;
+  patch?: AIPatch | null; // Optional patch for this thread
   onSelect: () => void;
   onToggleExpand: () => void;
   onReplyTextChange: (text: string) => void;
@@ -535,6 +729,8 @@ interface ThreadCardProps {
   onDeleteMessage: (threadId: string, messageId: string) => void;
   onDeleteThread: (threadId: string) => void;
   onToggleResolve: (threadId: string) => void;
+  onAcceptPatch?: (threadId: string, patch: AIPatch) => void;
+  onRejectPatch?: (threadId: string, patch: AIPatch) => void;
 }
 
 function ThreadCard({
@@ -545,6 +741,7 @@ function ThreadCard({
   replyText,
   editingMessage,
   editText,
+  patch,
   onSelect,
   onToggleExpand,
   onReplyTextChange,
@@ -556,6 +753,8 @@ function ThreadCard({
   onDeleteMessage,
   onDeleteThread,
   onToggleResolve,
+  onAcceptPatch,
+  onRejectPatch,
 }: ThreadCardProps) {
   const firstMessage = thread.messages[0];
   const hasReplies = thread.messages.length > 1;
@@ -583,13 +782,22 @@ function ThreadCard({
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => onToggleResolve(thread.id)}
+            disabled={patch && patch.status !== "open"}
             className={cn(
               "p-1 rounded transition-colors",
-              thread.resolved
+              patch && patch.status !== "open"
+                ? "opacity-50 cursor-not-allowed text-muted-foreground"
+                : thread.resolved
                 ? "text-green-600 hover:bg-green-100"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
-            title={thread.resolved ? "Reopen" : "Resolve"}
+            title={
+              patch && patch.status !== "open"
+                ? "Cannot unresolve after accepting/rejecting patch"
+                : thread.resolved
+                ? "Reopen"
+                : "Resolve"
+            }
           >
             {thread.resolved ? (
               <CheckCircle2 className="w-4 h-4" />
@@ -657,6 +865,15 @@ function ThreadCard({
             />
           ))}
         </div>
+      )}
+
+      {/* Patch suggestion card (if available) */}
+      {patch && onAcceptPatch && onRejectPatch && (
+        <PatchCard
+          patch={patch}
+          onAccept={() => onAcceptPatch(thread.id, patch)}
+          onReject={() => onRejectPatch(thread.id, patch)}
+        />
       )}
 
       {/* Reply input (always visible when expanded or selected) */}

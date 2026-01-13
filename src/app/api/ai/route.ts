@@ -16,7 +16,7 @@ const anthropic = new Anthropic({
 
 // Configuration
 const AI_MODEL = process.env.AI_MODEL || "claude-3-5-sonnet-20241022";
-const AI_MAX_OUTPUT_TOKENS = parseInt(process.env.AI_MAX_OUTPUT_TOKENS || "600", 10);
+const AI_MAX_OUTPUT_TOKENS = parseInt(process.env.AI_MAX_OUTPUT_TOKENS || "2000", 10);
 const AI_TIMEOUT_MS = 25000; // 25 seconds
 
 /**
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     console.log("[AI API] Selected text length:", req.context.selectedText.length);
 
     // Call Anthropic API with timeout
-    const response = await callAnthropicWithTimeout(prompts.system, prompts.user);
+    const response = await callAnthropicWithTimeout(prompts.system, prompts.user, req.mode);
 
     return NextResponse.json(response, { status: 200 });
   } catch (error: any) {
@@ -159,11 +159,75 @@ function validateRequest(body: unknown): string | null {
 }
 
 /**
+ * Parse JSON response from AI (for synthesize mode)
+ * Extracts JSON from markdown code blocks or raw JSON
+ */
+function parseJSONResponse(text: string): AskAIResponse | null {
+  try {
+    // Try multiple extraction strategies
+
+    // 1. Try to extract JSON from markdown code block (most common)
+    const jsonBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (jsonBlockMatch) {
+      try {
+        const jsonStr = jsonBlockMatch[1].trim();
+        console.log("[AI API] Extracted from code block:", jsonStr.substring(0, 100));
+        const parsed = JSON.parse(jsonStr);
+        if (parsed.message && parsed.proposedText) {
+          return {
+            message: parsed.message,
+            proposedText: parsed.proposedText,
+          };
+        }
+      } catch (e) {
+        console.error("[AI API] Failed to parse code block JSON:", e);
+      }
+    }
+
+    // 2. Try to find JSON object anywhere in the text (greedy match)
+    const jsonObjectMatch = text.match(/\{[\s\S]*?\}/);
+    if (jsonObjectMatch) {
+      try {
+        console.log("[AI API] Found JSON object:", jsonObjectMatch[0].substring(0, 100));
+        const parsed = JSON.parse(jsonObjectMatch[0]);
+        if (parsed.message && parsed.proposedText) {
+          return {
+            message: parsed.message,
+            proposedText: parsed.proposedText,
+          };
+        }
+      } catch (e) {
+        console.error("[AI API] Failed to parse extracted JSON:", e);
+      }
+    }
+
+    // 3. Try to parse the entire text as JSON (fallback)
+    try {
+      const parsed = JSON.parse(text.trim());
+      if (parsed.message && parsed.proposedText) {
+        return {
+          message: parsed.message,
+          proposedText: parsed.proposedText,
+        };
+      }
+    } catch (e) {
+      console.error("[AI API] Failed to parse full text as JSON:", e);
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[AI API] JSON parse error:", error);
+    return null;
+  }
+}
+
+/**
  * Call Anthropic API with timeout
  */
 async function callAnthropicWithTimeout(
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  mode: AskAIMode
 ): Promise<AskAIResponse> {
   // Create timeout promise
   const timeoutPromise = new Promise<never>((_, reject) => {
@@ -193,8 +257,28 @@ async function callAnthropicWithTimeout(
         throw new Error("No text content in AI response");
       }
 
+      const responseText = textContent.text;
+
+      // For synthesize mode, try to parse JSON
+      if (mode === "synthesize") {
+        console.log("[AI API] Raw response text (full):", responseText);
+        console.log("[AI API] Response length:", responseText.length);
+        const parsed = parseJSONResponse(responseText);
+        if (parsed) {
+          console.log("[AI API] Successfully parsed JSON:", {
+            hasMessage: !!parsed.message,
+            hasProposedText: !!parsed.proposedText,
+            proposedTextLength: parsed.proposedText?.length
+          });
+          return parsed;
+        }
+        // Fallback: treat entire response as message if JSON parsing fails
+        console.warn("[AI API] Failed to parse JSON in synthesize mode, falling back to plain text");
+      }
+
+      // For critique mode or fallback, return as plain message
       return {
-        message: textContent.text,
+        message: responseText,
       };
     } catch (error: any) {
       console.error("[AI API] Anthropic API error:", error.message);

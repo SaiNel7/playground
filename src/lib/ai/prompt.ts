@@ -124,6 +124,16 @@ function buildUserPrompt(req: AskAIRequest): string {
     parts.push("Provide feedback on the selected text. Be specific and constructive.");
   } else if (req.mode === "synthesize") {
     parts.push("Suggest an improved version of the selected text. Keep the writer's voice and intent.");
+    parts.push("");
+    parts.push("**IMPORTANT**: Return your response as JSON with this exact structure:");
+    parts.push('```json');
+    parts.push('{');
+    parts.push('  "message": "Brief explanation of your changes (50-100 words)",');
+    parts.push('  "proposedText": "Your improved version of the selected text"');
+    parts.push('}');
+    parts.push('```');
+    parts.push("");
+    parts.push("The proposedText must be a direct replacement for the selected text only—do not include surrounding context.");
   }
 
   return parts.join("\n");

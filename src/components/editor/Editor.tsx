@@ -128,9 +128,11 @@ export function Editor({
     });
 
     // Find and delete orphaned comments
+    // NOTE: Exclude AI threads from orphan cleanup since they don't have marks in the editor
     const storedComments = getDocumentComments(documentId);
     storedComments.forEach((comment) => {
-      if (!activeCommentIds.has(comment.id)) {
+      // Only delete non-AI threads that don't have marks in the editor
+      if (!comment.isAIThread && !activeCommentIds.has(comment.id)) {
         deleteComment(comment.id);
         onCommentDeleted(comment.id);
       }
