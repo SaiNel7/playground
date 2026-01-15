@@ -4,6 +4,8 @@ Workshop is a Notion-like writing and ideation editor with a **persistent AI col
 
 The goal is to explore **true human-AI collaboration for creative work**, especially writing, thinking, and iteration.
 
+[Video Demo](https://www.loom.com/share/338830bbc54e4d7f8848f8091f87a1b3)
+
 ## Features
 
 - **Selection-Aware AI Collaborator** - Highlight text and ask AI for critique or synthesis
@@ -23,7 +25,7 @@ The goal is to explore **true human-AI collaboration for creative work**, especi
 Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/workshop.git
+git clone https://github.com/SaiNel7/workshop.git
 cd workshop
 ```
 
