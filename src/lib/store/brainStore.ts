@@ -12,7 +12,17 @@ function readFromStorage(): Record<string, ProjectBrain> {
   if (typeof window === "undefined") return {};
   try {
     const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : {};
+    if (!data) return {};
+
+    const parsed = JSON.parse(data);
+
+    // Migration: If data is an array (old bug), convert to empty object
+    if (Array.isArray(parsed)) {
+      console.warn('[brainStore] Found corrupted array data, resetting to empty object');
+      return {};
+    }
+
+    return parsed;
   } catch {
     console.error("Failed to read brains from localStorage");
     return {};
@@ -51,6 +61,9 @@ function getDefaultBrain(): ProjectBrain {
  */
 export function getBrain(projectId: string): ProjectBrain {
   const brains = readFromStorage();
+  console.log('[brainStore] getBrain - all brains:', brains);
+  console.log('[brainStore] getBrain - projectId:', projectId);
+  console.log('[brainStore] getBrain - returning:', brains[projectId] || getDefaultBrain());
   return brains[projectId] || getDefaultBrain();
 }
 
@@ -61,8 +74,11 @@ export function getBrain(projectId: string): ProjectBrain {
  * @param brain - Complete brain object
  */
 export function saveBrain(projectId: string, brain: ProjectBrain): void {
+  console.log('[brainStore] saveBrain - projectId:', projectId);
+  console.log('[brainStore] saveBrain - brain:', brain);
   const brains = readFromStorage();
   brains[projectId] = brain;
+  console.log('[brainStore] saveBrain - all brains after update:', brains);
   writeToStorage(brains);
 }
 

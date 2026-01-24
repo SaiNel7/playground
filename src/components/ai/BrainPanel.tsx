@@ -35,6 +35,7 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
   useEffect(() => {
     if (isOpen) {
       const loadedBrain = getBrain(projectId);
+      console.log('[BrainPanel] Loading brain:', loadedBrain);
       setBrain(loadedBrain);
       setLocalGoal(loadedBrain.goal);
     }
@@ -48,12 +49,14 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
       }
 
       saveTimeoutRef.current = setTimeout(() => {
-        const updated = { ...brain, goal };
+        // Get the latest brain state from localStorage to avoid stale closures
+        const currentBrain = getBrain(projectId);
+        const updated = { ...currentBrain, goal };
         saveBrain(projectId, updated);
         setBrain(updated);
       }, 600);
     },
-    [brain, projectId]
+    [projectId]
   );
 
   const handleGoalChange = (value: string) => {
@@ -65,6 +68,7 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
   const handleAddConstraint = () => {
     if (!newConstraint.trim()) return;
     const updated = addConstraint(projectId, newConstraint.trim());
+    console.log('[BrainPanel] Added constraint, updated brain:', updated);
     setBrain(updated);
     setNewConstraint("");
   };
