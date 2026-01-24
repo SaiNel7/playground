@@ -8,10 +8,11 @@ interface TopbarProps {
   starred?: boolean;
   onToggleStar?: () => void;
   onDelete?: () => void;
-  onOpenBrain?: () => void;
+  onToggleBrain?: () => void;
+  isBrainOpen?: boolean;
 }
 
-export function Topbar({ title, starred, onToggleStar, onDelete, onOpenBrain }: TopbarProps) {
+export function Topbar({ title, starred, onToggleStar, onDelete, onToggleBrain, isBrainOpen }: TopbarProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -65,8 +66,12 @@ export function Topbar({ title, starred, onToggleStar, onDelete, onOpenBrain }: 
       
       <div className="flex items-center gap-1">
         <button
-          onClick={onOpenBrain}
-          className="p-1.5 hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground"
+          onClick={onToggleBrain}
+          className={`p-1.5 hover:bg-muted rounded transition-colors ${
+            isBrainOpen
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
           title="Project Brain"
         >
           <Brain className="w-4 h-4" />

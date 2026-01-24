@@ -214,7 +214,8 @@ export default function DocPage({ params }: DocPageProps) {
             starred={starred}
             onToggleStar={handleToggleStar}
             onDelete={handleDeleteDocument}
-            onOpenBrain={() => setIsBrainPanelOpen(true)}
+            onToggleBrain={() => setIsBrainPanelOpen(!isBrainPanelOpen)}
+            isBrainOpen={isBrainPanelOpen}
           />
 
           <div className="flex-1 overflow-auto">
