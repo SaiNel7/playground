@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Plus, Trash2, Brain as BrainIcon } from "lucide-react";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/utils";
 import {
   getBrain,
   saveBrain,
@@ -35,7 +35,6 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
   useEffect(() => {
     if (isOpen) {
       const loadedBrain = getBrain(projectId);
-      console.log('[BrainPanel] Loading brain:', loadedBrain);
       setBrain(loadedBrain);
       setLocalGoal(loadedBrain.goal);
     }
@@ -68,7 +67,6 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
   const handleAddConstraint = () => {
     if (!newConstraint.trim()) return;
     const updated = addConstraint(projectId, newConstraint.trim());
-    console.log('[BrainPanel] Added constraint, updated brain:', updated);
     setBrain(updated);
     setNewConstraint("");
   };

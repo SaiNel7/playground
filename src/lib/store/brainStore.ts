@@ -61,9 +61,6 @@ function getDefaultBrain(): ProjectBrain {
  */
 export function getBrain(projectId: string): ProjectBrain {
   const brains = readFromStorage();
-  console.log('[brainStore] getBrain - all brains:', brains);
-  console.log('[brainStore] getBrain - projectId:', projectId);
-  console.log('[brainStore] getBrain - returning:', brains[projectId] || getDefaultBrain());
   return brains[projectId] || getDefaultBrain();
 }
 
@@ -74,11 +71,8 @@ export function getBrain(projectId: string): ProjectBrain {
  * @param brain - Complete brain object
  */
 export function saveBrain(projectId: string, brain: ProjectBrain): void {
-  console.log('[brainStore] saveBrain - projectId:', projectId);
-  console.log('[brainStore] saveBrain - brain:', brain);
   const brains = readFromStorage();
   brains[projectId] = brain;
-  console.log('[brainStore] saveBrain - all brains after update:', brains);
   writeToStorage(brains);
 }
 
