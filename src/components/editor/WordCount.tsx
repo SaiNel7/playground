@@ -10,6 +10,7 @@ interface WordCountProps {
 export function WordCount({ editor }: WordCountProps) {
   const [wordCount, setWordCount] = useState(0);
   const [charCount, setCharCount] = useState(0);
+  const [showWords, setShowWords] = useState(true);
 
   useEffect(() => {
     if (!editor) return;
@@ -43,15 +44,25 @@ export function WordCount({ editor }: WordCountProps) {
 
   if (!editor) return null;
 
+  const handleToggle = () => {
+    setShowWords(!showWords);
+  };
+
   return (
-    <div className="fixed bottom-4 right-4 bg-background/80 backdrop-blur-sm border border-border rounded-md px-3 py-1.5 text-xs text-muted-foreground flex items-center gap-3">
-      <span>
-        {wordCount} {wordCount === 1 ? "word" : "words"}
-      </span>
-      <span className="text-border">|</span>
-      <span>
-        {charCount} {charCount === 1 ? "char" : "chars"}
-      </span>
-    </div>
+    <button
+      onClick={handleToggle}
+      className="fixed bottom-4 left-4 bg-background/80 backdrop-blur-sm border border-border rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+      title={showWords ? "Click to show character count" : "Click to show word count"}
+    >
+      {showWords ? (
+        <span>
+          {wordCount} {wordCount === 1 ? "word" : "words"}
+        </span>
+      ) : (
+        <span>
+          {charCount} {charCount === 1 ? "char" : "chars"}
+        </span>
+      )}
+    </button>
   );
 }
