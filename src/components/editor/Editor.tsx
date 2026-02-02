@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { editorExtensions } from "./extensions";
 import { SelectionBubble } from "./SelectionBubble";
+import { WordCount } from "./WordCount";
 import "./editor.css";
 import {
   Bold,
@@ -540,6 +541,9 @@ export function Editor({
 
       {/* Floating selection bubble for comments */}
       <SelectionBubble editor={editor} onAddComment={handleBubbleComment} onAskAI={handleAskAI} />
+
+      {/* Word count indicator */}
+      <WordCount editor={editor} />
     </div>
   );
 }
