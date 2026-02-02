@@ -51,8 +51,9 @@ export function WordCount({ editor }: WordCountProps) {
   return (
     <button
       onClick={handleToggle}
-      className="fixed bottom-4 left-4 bg-background/80 backdrop-blur-sm border border-border rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+      className="fixed bottom-8 bg-background/80 backdrop-blur-sm border border-border rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors cursor-pointer z-10"
       title={showWords ? "Click to show character count" : "Click to show word count"}
+      style={{ left: "calc(240px + 2rem)" }}
     >
       {showWords ? (
         <span>

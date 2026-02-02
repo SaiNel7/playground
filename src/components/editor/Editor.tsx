@@ -416,7 +416,7 @@ export function Editor({
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-16 pb-16">
+    <div className="max-w-3xl mx-auto px-16 pb-16 relative">
       {/* Floating toolbar */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm py-2 mb-4 border-b border-transparent">
         <div className="flex items-center gap-0.5 flex-wrap">
