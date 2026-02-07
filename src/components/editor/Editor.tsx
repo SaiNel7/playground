@@ -77,6 +77,18 @@ export function Editor({
         return false;
       },
       handleKeyDown: (view, event) => {
+        // Backspace at start of document → focus title
+        if (event.key === 'Backspace') {
+          const { from, empty } = view.state.selection;
+          if (empty && from === 1) {
+            const titleEl = window.document.querySelector('textarea[placeholder="Untitled"]') as HTMLTextAreaElement;
+            if (titleEl) {
+              titleEl.focus();
+              titleEl.setSelectionRange(titleEl.value.length, titleEl.value.length);
+              return true;
+            }
+          }
+        }
         // Handle Tab key to insert indent instead of changing focus
         if (event.key === 'Tab') {
           event.preventDefault();
