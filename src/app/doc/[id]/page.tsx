@@ -229,6 +229,13 @@ export default function DocPage({ params }: DocPageProps) {
                 className="w-full text-4xl font-bold text-foreground bg-transparent outline-none placeholder:text-muted-foreground/40 resize-none overflow-hidden"
                 spellCheck={false}
                 rows={1}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const editorEl = window.document.querySelector(".tiptap-editor") as HTMLElement;
+                    editorEl?.focus();
+                  }
+                }}
                 onInput={(e) => {
                   // Auto-resize textarea to fit content
                   const target = e.target as HTMLTextAreaElement;
