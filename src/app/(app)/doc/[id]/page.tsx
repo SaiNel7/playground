@@ -104,7 +104,6 @@ export default function DocPage({ params }: DocPageProps) {
   const toggleCommentPanel = useCallback(() => {
     setIsCommentPanelOpen((prev) => !prev);
     if (isCommentPanelOpen) {
-      // Closing - clear selection and pending
       setSelectedCommentId(null);
       setPendingComment(null);
     }
@@ -125,10 +124,7 @@ export default function DocPage({ params }: DocPageProps) {
 
   // Handle Ask AI from selection
   const handleAskAIFromSelection = useCallback((text: string) => {
-    // Create an AI thread with default mode (critique)
     const thread = createAIThread(params.id, text, "critique");
-
-    // Open comment panel and select the new AI thread
     setSelectedCommentId(thread.id);
     setIsCommentPanelOpen(true);
     loadCommentCount();
@@ -163,8 +159,7 @@ export default function DocPage({ params }: DocPageProps) {
   // Handle delete document
   const handleDeleteDocument = useCallback(() => {
     deleteDocument(params.id);
-    
-    // Navigate to another document or home
+
     const remainingDocs = getAllDocuments();
     if (remainingDocs.length > 0) {
       router.push(`/doc/${remainingDocs[0].id}`);
@@ -182,7 +177,6 @@ export default function DocPage({ params }: DocPageProps) {
     };
   }, []);
 
-  // Format relative time for last edited
   const formatLastEdited = (timestamp: number | null) => {
     if (!timestamp) return "";
     return formatRelativeTime(timestamp, {
@@ -192,7 +186,6 @@ export default function DocPage({ params }: DocPageProps) {
     });
   };
 
-  // Loading state
   if (!document) {
     return (
       <div className="flex flex-col h-full">
@@ -237,7 +230,6 @@ export default function DocPage({ params }: DocPageProps) {
                   }
                 }}
                 onInput={(e) => {
-                  // Auto-resize textarea to fit content
                   const target = e.target as HTMLTextAreaElement;
                   target.style.height = 'auto';
                   target.style.height = target.scrollHeight + 'px';
@@ -267,7 +259,7 @@ export default function DocPage({ params }: DocPageProps) {
           </div>
         </div>
 
-        {/* Comment panel (outside main content, affects full height) */}
+        {/* Comment panel */}
         <CommentPanel
           documentId={params.id}
           isOpen={isCommentPanelOpen}
@@ -280,7 +272,7 @@ export default function DocPage({ params }: DocPageProps) {
           onCancelPending={() => setPendingComment(null)}
         />
 
-        {/* Brain panel (outside main content, affects full height) */}
+        {/* Brain panel */}
         <BrainPanel
           projectId={params.id}
           isOpen={isBrainPanelOpen}
