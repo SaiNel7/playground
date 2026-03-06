@@ -17,7 +17,7 @@ const anthropic = new Anthropic({
 });
 
 // Configuration
-const AI_MODEL = process.env.AI_MODEL || "claude-3-5-sonnet-20241022";
+const AI_MODEL = process.env.AI_MODEL || "claude-sonnet-4-6";
 const AI_TIMEOUT_MS = 25000; // 25 seconds
 
 // Mode-specific token limits
