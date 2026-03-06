@@ -8,7 +8,6 @@ import { Document } from "@/lib/types";
 import {
   getAllDocuments,
   createDocument,
-  subscribeToChanges,
 } from "@/lib/store/documentStore";
 
 interface QuickSwitchProps {
@@ -24,14 +23,12 @@ export function QuickSwitch({ isOpen, onClose }: QuickSwitchProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   // Load documents
-  const loadDocuments = useCallback(() => {
-    setDocuments(getAllDocuments());
+  const loadDocuments = useCallback(async () => {
+    setDocuments(await getAllDocuments());
   }, []);
 
   useEffect(() => {
     loadDocuments();
-    const unsubscribe = subscribeToChanges(loadDocuments);
-    return unsubscribe;
   }, [loadDocuments]);
 
   // Filter documents by query
@@ -93,8 +90,8 @@ export function QuickSwitch({ isOpen, onClose }: QuickSwitchProps) {
   };
 
   // Create new document
-  const handleNewDocument = () => {
-    const newDoc = createDocument({ title: query.trim() || "Untitled" });
+  const handleNewDocument = async () => {
+    const newDoc = await createDocument({ title: query.trim() || "Untitled" });
     router.push(`/doc/${newDoc.id}`);
     onClose();
   };

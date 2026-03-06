@@ -44,25 +44,27 @@ export default function DocPage({ params }: DocPageProps) {
   const [isBrainPanelOpen, setIsBrainPanelOpen] = useState(false);
 
   // Load comment count
-  const loadCommentCount = useCallback(() => {
-    const comments = getDocumentComments(params.id);
+  const loadCommentCount = useCallback(async () => {
+    const comments = await getDocumentComments(params.id);
     setCommentCount(comments.length);
   }, [params.id]);
 
   // Load or create document on mount
   useEffect(() => {
-    let doc = getDocument(params.id);
+    (async () => {
+      let doc = await getDocument(params.id);
 
-    // Auto-create document if it doesn't exist
-    if (!doc) {
-      doc = createDocument({ id: params.id, title: "Untitled" });
-    }
+      // Auto-create document if it doesn't exist
+      if (!doc) {
+        doc = await createDocument({ id: params.id, title: "Untitled" });
+      }
 
-    setDocument(doc);
-    setTitle(doc.title);
-    setStarred(doc.starred || false);
-    setLastEdited(doc.updatedAt);
-    loadCommentCount();
+      setDocument(doc);
+      setTitle(doc.title);
+      setStarred(doc.starred || false);
+      setLastEdited(doc.updatedAt);
+      await loadCommentCount();
+    })();
   }, [params.id, loadCommentCount]);
 
   // Debounced title save
@@ -72,8 +74,8 @@ export default function DocPage({ params }: DocPageProps) {
         clearTimeout(titleTimeoutRef.current);
       }
 
-      titleTimeoutRef.current = setTimeout(() => {
-        updateDocument(params.id, { title: newTitle });
+      titleTimeoutRef.current = setTimeout(async () => {
+        await updateDocument(params.id, { title: newTitle });
         setLastEdited(Date.now());
       }, 500);
     },
@@ -123,11 +125,11 @@ export default function DocPage({ params }: DocPageProps) {
   }, []);
 
   // Handle Ask AI from selection
-  const handleAskAIFromSelection = useCallback((text: string) => {
-    const thread = createAIThread(params.id, text, "critique");
+  const handleAskAIFromSelection = useCallback(async (text: string) => {
+    const thread = await createAIThread(params.id, text, "critique");
     setSelectedCommentId(thread.id);
     setIsCommentPanelOpen(true);
-    loadCommentCount();
+    await loadCommentCount();
   }, [params.id, loadCommentCount]);
 
   // Handle comment added
@@ -151,16 +153,16 @@ export default function DocPage({ params }: DocPageProps) {
   }, []);
 
   // Handle toggle star
-  const handleToggleStar = useCallback(() => {
-    const newStarred = toggleStarDocument(params.id);
+  const handleToggleStar = useCallback(async () => {
+    const newStarred = await toggleStarDocument(params.id);
     setStarred(newStarred);
   }, [params.id]);
 
   // Handle delete document
-  const handleDeleteDocument = useCallback(() => {
-    deleteDocument(params.id);
+  const handleDeleteDocument = useCallback(async () => {
+    await deleteDocument(params.id);
 
-    const remainingDocs = getAllDocuments();
+    const remainingDocs = await getAllDocuments();
     if (remainingDocs.length > 0) {
       router.push(`/doc/${remainingDocs[0].id}`);
     } else {

@@ -10,17 +10,19 @@ export default function HomePage() {
   const [hasDocuments, setHasDocuments] = useState(false);
 
   useEffect(() => {
-    const docs = getAllDocuments();
-    setHasDocuments(docs.length > 0);
+    (async () => {
+      const docs = await getAllDocuments();
+      setHasDocuments(docs.length > 0);
 
-    // If there are documents, redirect to the most recent one
-    if (docs.length > 0) {
-      router.push(`/doc/${docs[0].id}`);
-    }
+      // If there are documents, redirect to the most recent one
+      if (docs.length > 0) {
+        router.push(`/doc/${docs[0].id}`);
+      }
+    })();
   }, [router]);
 
-  const handleNewDocument = () => {
-    const newDoc = createDocument({ title: "Untitled" });
+  const handleNewDocument = async () => {
+    const newDoc = await createDocument({ title: "Untitled" });
     router.push(`/doc/${newDoc.id}`);
   };
 

@@ -1,125 +1,99 @@
+import { createClient } from "@/lib/supabase/client";
 import { Document } from "@/lib/types";
-import { generateId } from "@/lib/utils";
 
-const STORAGE_KEY = "playground:documents";
-
-// Default empty Tiptap document (prevents hydration edge cases)
 const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] };
 
-// Helper: Read all documents from localStorage
-function readFromStorage(): Document[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    console.error("Failed to read documents from localStorage");
+function dbToDocument(row: any): Document {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    starred: row.starred,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+  };
+}
+
+export async function getAllDocuments(): Promise<Document[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .order("updated_at", { ascending: false });
+  if (error) {
+    console.error("[documentStore] getAllDocuments:", error);
     return [];
   }
+  return (data || []).map(dbToDocument);
 }
 
-// Helper: Write all documents to localStorage
-function writeToStorage(documents: Document[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
-  } catch {
-    console.error("Failed to write documents to localStorage");
+export async function getDocument(id: string): Promise<Document | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) {
+    console.error("[documentStore] getDocument:", error);
+    return null;
   }
+  return data ? dbToDocument(data) : null;
 }
 
-// Get all documents sorted by updatedAt (descending)
-// Note: spread to avoid mutating the original array
-export function getAllDocuments(): Document[] {
-  const docs = readFromStorage();
-  return [...docs].sort((a, b) => b.updatedAt - a.updatedAt);
+export async function createDocument(partial?: Partial<Document>): Promise<Document> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("documents")
+    .insert({
+      user_id: user.id,
+      title: partial?.title ?? "Untitled",
+      content: partial?.content ?? EMPTY_DOC,
+      starred: partial?.starred ?? false,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return dbToDocument(data);
 }
 
-// Get a single document by ID
-export function getDocument(id: string): Document | null {
-  const docs = readFromStorage();
-  return docs.find((doc) => doc.id === id) || null;
-}
-
-// Create a new document (with uniqueness protection)
-export function createDocument(partial?: Partial<Document>): Document {
-  const now = Date.now();
-  const docs = readFromStorage();
-
-  // If partial.id is provided and already exists, generate a new ID
-  let id = partial?.id || generateId();
-  if (partial?.id && docs.some((doc) => doc.id === partial.id)) {
-    id = generateId();
-  }
-
-  const newDoc: Document = {
-    id,
-    title: partial?.title || "Untitled",
-    content: partial?.content ?? EMPTY_DOC,
-    createdAt: partial?.createdAt || now,
-    updatedAt: partial?.updatedAt || now,
+export async function updateDocument(id: string, updates: Partial<Document>): Promise<void> {
+  const supabase = createClient();
+  const updateData: Record<string, any> = {
+    updated_at: new Date().toISOString(),
   };
+  if (updates.title !== undefined) updateData.title = updates.title;
+  if (updates.content !== undefined) updateData.content = updates.content;
+  if (updates.starred !== undefined) updateData.starred = updates.starred;
 
-  docs.push(newDoc);
-  writeToStorage(docs);
-
-  return newDoc;
+  const { error } = await supabase
+    .from("documents")
+    .update(updateData)
+    .eq("id", id);
+  if (error) console.error("[documentStore] updateDocument:", error);
 }
 
-// Update an existing document
-// Note: respects updates.updatedAt if explicitly provided (for imports/restores)
-export function updateDocument(id: string, updates: Partial<Document>): void {
-  const docs = readFromStorage();
-  const index = docs.findIndex((doc) => doc.id === id);
-
-  if (index === -1) return;
-
-  const updatedAt = updates.updatedAt ?? Date.now();
-  docs[index] = {
-    ...docs[index],
-    ...updates,
-    updatedAt,
-  };
-
-  writeToStorage(docs);
+export async function deleteDocument(id: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from("documents").delete().eq("id", id);
+  if (error) console.error("[documentStore] deleteDocument:", error);
 }
 
-// Delete a document
-export function deleteDocument(id: string): void {
-  const docs = readFromStorage();
-  const filtered = docs.filter((doc) => doc.id !== id);
-  writeToStorage(filtered);
-}
-
-// Toggle starred status
-export function toggleStarDocument(id: string): boolean {
-  const docs = readFromStorage();
-  const index = docs.findIndex((doc) => doc.id === id);
-
-  if (index === -1) return false;
-
-  const newStarred = !docs[index].starred;
-  docs[index] = {
-    ...docs[index],
-    starred: newStarred,
-  };
-
-  writeToStorage(docs);
+export async function toggleStarDocument(id: string): Promise<boolean> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("documents")
+    .select("starred")
+    .eq("id", id)
+    .single();
+  const newStarred = !data?.starred;
+  await supabase
+    .from("documents")
+    .update({ starred: newStarred, updated_at: new Date().toISOString() })
+    .eq("id", id);
   return newStarred;
-}
-
-// Subscribe to storage changes (for cross-tab sync)
-export function subscribeToChanges(callback: () => void): () => void {
-  const handler = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
-      callback();
-    }
-  };
-
-  if (typeof window !== "undefined") {
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }
-
-  return () => {};
 }

@@ -1,213 +1,117 @@
-// Project Brain persistence (localStorage-based)
-// One brain per project (for v1, projectId = documentId)
-
+import { createClient } from "@/lib/supabase/client";
 import type { ProjectBrain } from "@/lib/ai/schema";
 
-const STORAGE_KEY = "playground:brains";
+const DEFAULT_BRAIN: ProjectBrain = {
+  goal: "",
+  constraints: [],
+  glossary: [],
+  decisions: [],
+};
 
-/**
- * Read all brains from localStorage
- */
-function readFromStorage(): Record<string, ProjectBrain> {
-  if (typeof window === "undefined") return {};
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (!data) return {};
-
-    const parsed = JSON.parse(data);
-
-    // Migration: If data is an array (old bug), convert to empty object
-    if (Array.isArray(parsed)) {
-      console.warn('[brainStore] Found corrupted array data, resetting to empty object');
-      return {};
-    }
-
-    return parsed;
-  } catch {
-    console.error("Failed to read brains from localStorage");
-    return {};
-  }
-}
-
-/**
- * Write all brains to localStorage
- */
-function writeToStorage(brains: Record<string, ProjectBrain>): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(brains));
-  } catch {
-    console.error("Failed to write brains to localStorage");
-  }
-}
-
-/**
- * Get default brain (empty state)
- */
-function getDefaultBrain(): ProjectBrain {
+function dbToBrain(row: any): ProjectBrain {
   return {
-    goal: "",
-    constraints: [],
-    glossary: [],
-    decisions: [],
+    goal: row.goal || "",
+    constraints: row.constraints || [],
+    glossary: row.glossary || [],
+    decisions: row.decisions || [],
   };
 }
 
-/**
- * Get brain for a project.
- * Returns default brain if none exists.
- *
- * @param projectId - Project ID (for v1, use documentId)
- */
-export function getBrain(projectId: string): ProjectBrain {
-  const brains = readFromStorage();
-  return brains[projectId] || getDefaultBrain();
+export async function getBrain(projectId: string): Promise<ProjectBrain> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("project_brains")
+    .select("*")
+    .eq("document_id", projectId)
+    .single();
+  return data ? dbToBrain(data) : { ...DEFAULT_BRAIN };
 }
 
-/**
- * Save brain for a project.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param brain - Complete brain object
- */
-export function saveBrain(projectId: string, brain: ProjectBrain): void {
-  const brains = readFromStorage();
-  brains[projectId] = brain;
-  writeToStorage(brains);
+export async function saveBrain(projectId: string, brain: ProjectBrain): Promise<void> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase
+    .from("project_brains")
+    .upsert(
+      {
+        document_id: projectId,
+        user_id: user.id,
+        goal: brain.goal,
+        constraints: brain.constraints,
+        glossary: brain.glossary,
+        decisions: brain.decisions,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "document_id" }
+    );
 }
 
-/**
- * Update brain for a project (merge with existing).
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param updates - Partial brain updates
- * @returns Updated brain
- */
-export function updateBrain(
+async function mutateBrain(
   projectId: string,
-  updates: Partial<ProjectBrain>
-): ProjectBrain {
-  const brains = readFromStorage();
-  const current = brains[projectId] || getDefaultBrain();
-  const updated = { ...current, ...updates };
-  brains[projectId] = updated;
-  writeToStorage(brains);
+  mutate: (brain: ProjectBrain) => ProjectBrain
+): Promise<ProjectBrain> {
+  const current = await getBrain(projectId);
+  const updated = mutate(current);
+  await saveBrain(projectId, updated);
   return updated;
 }
 
-/**
- * Delete brain for a project.
- *
- * @param projectId - Project ID (for v1, use documentId)
- */
-export function deleteBrain(projectId: string): void {
-  const brains = readFromStorage();
-  delete brains[projectId];
-  writeToStorage(brains);
+export async function updateBrain(
+  projectId: string,
+  updates: Partial<ProjectBrain>
+): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({ ...brain, ...updates }));
 }
 
-/**
- * Check if a brain exists for a project.
- *
- * @param projectId - Project ID (for v1, use documentId)
- */
-export function hasBrain(projectId: string): boolean {
-  const brains = readFromStorage();
-  return projectId in brains;
+export async function addConstraint(projectId: string, constraint: string): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({
+    ...brain,
+    constraints: [...brain.constraints, constraint],
+  }));
 }
 
-/**
- * Add a decision to the brain.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param text - Decision text
- */
-export function addDecision(projectId: string, text: string): ProjectBrain {
-  const brain = getBrain(projectId);
-  const decision = {
-    text,
-    createdAt: Date.now(),
-  };
-  brain.decisions.push(decision);
-  saveBrain(projectId, brain);
-  return brain;
+export async function removeConstraint(projectId: string, index: number): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({
+    ...brain,
+    constraints: brain.constraints.filter((_, i) => i !== index),
+  }));
 }
 
-/**
- * Remove a decision from the brain by index.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param index - Decision index to remove
- */
-export function removeDecision(projectId: string, index: number): ProjectBrain {
-  const brain = getBrain(projectId);
-  brain.decisions.splice(index, 1);
-  saveBrain(projectId, brain);
-  return brain;
-}
-
-/**
- * Add a glossary term to the brain.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param term - Term name
- * @param definition - Term definition
- */
-export function addGlossaryTerm(
+export async function addGlossaryTerm(
   projectId: string,
   term: string,
   definition: string
-): ProjectBrain {
-  const brain = getBrain(projectId);
-  brain.glossary.push({ term, definition });
-  saveBrain(projectId, brain);
-  return brain;
+): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({
+    ...brain,
+    glossary: [...brain.glossary, { term, definition }],
+  }));
 }
 
-/**
- * Remove a glossary term from the brain by index.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param index - Glossary index to remove
- */
-export function removeGlossaryTerm(
-  projectId: string,
-  index: number
-): ProjectBrain {
-  const brain = getBrain(projectId);
-  brain.glossary.splice(index, 1);
-  saveBrain(projectId, brain);
-  return brain;
+export async function removeGlossaryTerm(projectId: string, index: number): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({
+    ...brain,
+    glossary: brain.glossary.filter((_, i) => i !== index),
+  }));
 }
 
-/**
- * Add a constraint to the brain.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param constraint - Constraint text
- */
-export function addConstraint(
-  projectId: string,
-  constraint: string
-): ProjectBrain {
-  const brain = getBrain(projectId);
-  brain.constraints.push(constraint);
-  saveBrain(projectId, brain);
-  return brain;
+export async function addDecision(projectId: string, text: string): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({
+    ...brain,
+    decisions: [...brain.decisions, { text, createdAt: Date.now() }],
+  }));
 }
 
-/**
- * Remove a constraint from the brain by index.
- *
- * @param projectId - Project ID (for v1, use documentId)
- * @param index - Constraint index to remove
- */
-export function removeConstraint(
-  projectId: string,
-  index: number
-): ProjectBrain {
-  const brain = getBrain(projectId);
-  brain.constraints.splice(index, 1);
-  saveBrain(projectId, brain);
-  return brain;
+export async function removeDecision(projectId: string, index: number): Promise<ProjectBrain> {
+  return mutateBrain(projectId, (brain) => ({
+    ...brain,
+    decisions: brain.decisions.filter((_, i) => i !== index),
+  }));
+}
+
+export async function deleteBrain(projectId: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from("project_brains").delete().eq("document_id", projectId);
 }

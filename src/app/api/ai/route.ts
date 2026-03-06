@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { AskAIRequest, AskAIResponse, AskAIMode } from "@/lib/ai/schema";
 import { buildMarginEditorPrompt } from "@/lib/ai/prompt";
+import { createClient } from "@/lib/supabase/server";
+import { aiRatelimit } from "@/lib/ratelimit";
 
 // Valid AI modes
 const VALID_MODES: AskAIMode[] = ["critique", "synthesize"];

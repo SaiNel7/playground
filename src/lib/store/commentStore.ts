@@ -1,353 +1,334 @@
+import { createClient } from "@/lib/supabase/client";
 import { CommentThread, CommentMessage } from "@/lib/types";
-import { generateId } from "@/lib/utils";
 import type { AskAIMode } from "@/lib/ai/schema";
 
-const STORAGE_KEY = "playground:comments";
-
-// Helper: Read all threads from localStorage
-function readFromStorage(): CommentThread[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    const parsed = data ? JSON.parse(data) : [];
-    // Migrate old format if needed
-    return parsed.map(migrateThread);
-  } catch {
-    console.error("Failed to read comments from localStorage");
-    return [];
-  }
-}
-
-// Migrate old comment format to new thread format
-function migrateThread(item: any): CommentThread {
-  // Already new format
-  if (item.messages && Array.isArray(item.messages)) {
-    return item as CommentThread;
-  }
-
-  // Old format: convert to new
-  const now = Date.now();
+function dbToMessage(row: any): CommentMessage {
   return {
-    id: item.id,
-    documentId: item.documentId,
-    highlightedText: item.highlightedText || "",
-    messages: item.content
-      ? [
-          {
-            id: generateId(),
-            content: item.content,
-            author: "user",
-            createdAt: item.createdAt || now,
-            updatedAt: item.updatedAt || now,
-          },
-        ]
-      : [],
-    resolved: false,
-    createdAt: item.createdAt || now,
-    updatedAt: item.updatedAt || now,
+    id: row.id,
+    content: row.content,
+    author: row.author,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    status: row.status ?? undefined,
   };
 }
 
-// Helper: Write all threads to localStorage
-function writeToStorage(threads: CommentThread[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
-  } catch {
-    console.error("Failed to write comments to localStorage");
+function dbToThread(row: any): CommentThread {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    highlightedText: row.highlighted_text,
+    messages: (row.messages || [])
+      .map(dbToMessage)
+      .sort((a: CommentMessage, b: CommentMessage) => a.createdAt - b.createdAt),
+    resolved: row.resolved,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    isAIThread: row.is_ai_thread,
+    aiMode: row.ai_mode ?? undefined,
+  };
+}
+
+async function getUserId(): Promise<string> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+  return user.id;
+}
+
+export async function getDocumentComments(documentId: string): Promise<CommentThread[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("comment_threads")
+    .select("*, messages:comment_messages(*)")
+    .eq("document_id", documentId)
+    .order("created_at", { ascending: true });
+  if (error) {
+    console.error("[commentStore] getDocumentComments:", error);
+    return [];
   }
+  return (data || []).map(dbToThread);
 }
 
-// Get all threads for a document (sorted by createdAt asc)
-export function getDocumentComments(documentId: string): CommentThread[] {
-  const threads = readFromStorage();
-  return threads
-    .filter((t) => t.documentId === documentId)
-    .sort((a, b) => a.createdAt - b.createdAt);
+export async function getComment(id: string): Promise<CommentThread | null> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("comment_threads")
+    .select("*, messages:comment_messages(*)")
+    .eq("id", id)
+    .single();
+  return data ? dbToThread(data) : null;
 }
 
-// Get a single thread by ID
-export function getComment(id: string): CommentThread | null {
-  const threads = readFromStorage();
-  return threads.find((t) => t.id === id) || null;
-}
-
-// Create a new comment thread
-export function createComment(
+export async function createComment(
   documentId: string,
   content: string,
   highlightedText: string
-): CommentThread {
-  const now = Date.now();
-  const newThread: CommentThread = {
-    id: generateId(),
-    documentId,
-    highlightedText,
-    messages: [
-      {
-        id: generateId(),
-        content,
-        author: "user",
-        createdAt: now,
-        updatedAt: now,
-      },
-    ],
-    resolved: false,
-    createdAt: now,
-    updatedAt: now,
-  };
+): Promise<CommentThread> {
+  const supabase = createClient();
+  const userId = await getUserId();
 
-  const threads = readFromStorage();
-  threads.push(newThread);
-  writeToStorage(threads);
+  const { data: thread, error: threadError } = await supabase
+    .from("comment_threads")
+    .insert({
+      document_id: documentId,
+      user_id: userId,
+      highlighted_text: highlightedText,
+      resolved: false,
+      is_ai_thread: false,
+    })
+    .select()
+    .single();
+  if (threadError) throw threadError;
 
-  return newThread;
+  const { data: message, error: msgError } = await supabase
+    .from("comment_messages")
+    .insert({
+      thread_id: thread.id,
+      document_id: documentId,
+      user_id: userId,
+      content,
+      author: "user",
+    })
+    .select()
+    .single();
+  if (msgError) throw msgError;
+
+  return dbToThread({ ...thread, messages: [message] });
 }
 
-// Add a reply message to a thread
-export function addReplyToThread(threadId: string, content: string): CommentMessage | null {
-  const threads = readFromStorage();
-  const index = threads.findIndex((t) => t.id === threadId);
+export async function addReplyToThread(
+  threadId: string,
+  content: string
+): Promise<CommentMessage | null> {
+  const supabase = createClient();
+  const userId = await getUserId();
 
-  if (index === -1) return null;
+  const { data: thread } = await supabase
+    .from("comment_threads")
+    .select("document_id")
+    .eq("id", threadId)
+    .single();
+  if (!thread) return null;
 
-  const now = Date.now();
-  const newMessage: CommentMessage = {
-    id: generateId(),
-    content,
-    author: "user",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  threads[index].messages.push(newMessage);
-  threads[index].updatedAt = now;
-
-  writeToStorage(threads);
-  return newMessage;
-}
-
-// Update a message in a thread
-export function updateMessage(threadId: string, messageId: string, content: string): void {
-  const threads = readFromStorage();
-  const threadIndex = threads.findIndex((t) => t.id === threadId);
-
-  if (threadIndex === -1) return;
-
-  const messageIndex = threads[threadIndex].messages.findIndex((m) => m.id === messageId);
-  if (messageIndex === -1) return;
-
-  const now = Date.now();
-  threads[threadIndex].messages[messageIndex] = {
-    ...threads[threadIndex].messages[messageIndex],
-    content,
-    updatedAt: now,
-  };
-  threads[threadIndex].updatedAt = now;
-
-  writeToStorage(threads);
-}
-
-// Delete a message from a thread
-export function deleteMessage(threadId: string, messageId: string): boolean {
-  const threads = readFromStorage();
-  const threadIndex = threads.findIndex((t) => t.id === threadId);
-
-  if (threadIndex === -1) return false;
-
-  const thread = threads[threadIndex];
-  const newMessages = thread.messages.filter((m) => m.id !== messageId);
-
-  // If no messages left, delete the entire thread
-  if (newMessages.length === 0) {
-    threads.splice(threadIndex, 1);
-    writeToStorage(threads);
-    return true; // Thread was deleted
+  const { data: message, error } = await supabase
+    .from("comment_messages")
+    .insert({
+      thread_id: threadId,
+      document_id: thread.document_id,
+      user_id: userId,
+      content,
+      author: "user",
+    })
+    .select()
+    .single();
+  if (error) {
+    console.error("[commentStore] addReplyToThread:", error);
+    return null;
   }
 
-  threads[threadIndex].messages = newMessages;
-  threads[threadIndex].updatedAt = Date.now();
+  await supabase
+    .from("comment_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
 
-  writeToStorage(threads);
-  return false; // Thread still exists
+  return dbToMessage(message);
 }
 
-// Resolve/unresolve a thread
-export function toggleResolveThread(threadId: string): boolean {
-  const threads = readFromStorage();
-  const index = threads.findIndex((t) => t.id === threadId);
-
-  if (index === -1) return false;
-
-  threads[index].resolved = !threads[index].resolved;
-  threads[index].updatedAt = Date.now();
-
-  writeToStorage(threads);
-  return threads[index].resolved;
+export async function updateMessage(
+  threadId: string,
+  messageId: string,
+  content: string
+): Promise<void> {
+  const supabase = createClient();
+  await supabase
+    .from("comment_messages")
+    .update({ content, updated_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .eq("thread_id", threadId);
+  await supabase
+    .from("comment_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
 }
 
-// Delete a thread
-export function deleteComment(id: string): void {
-  const threads = readFromStorage();
-  const filtered = threads.filter((t) => t.id !== id);
-  writeToStorage(filtered);
-}
+export async function deleteMessage(
+  threadId: string,
+  messageId: string
+): Promise<boolean> {
+  const supabase = createClient();
 
-// Delete all threads for a document
-export function deleteDocumentComments(documentId: string): void {
-  const threads = readFromStorage();
-  const filtered = threads.filter((t) => t.documentId !== documentId);
-  writeToStorage(filtered);
-}
+  await supabase
+    .from("comment_messages")
+    .delete()
+    .eq("id", messageId)
+    .eq("thread_id", threadId);
 
-// Subscribe to thread changes
-export function subscribeToCommentChanges(callback: () => void): () => void {
-  const handler = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
-      callback();
-    }
-  };
+  const { count } = await supabase
+    .from("comment_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("thread_id", threadId);
 
-  if (typeof window !== "undefined") {
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
+  if ((count ?? 0) === 0) {
+    await supabase.from("comment_threads").delete().eq("id", threadId);
+    return true; // thread was deleted
   }
 
-  return () => {};
+  await supabase
+    .from("comment_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
+  return false;
+}
+
+export async function toggleResolveThread(threadId: string): Promise<boolean> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("comment_threads")
+    .select("resolved")
+    .eq("id", threadId)
+    .single();
+  const newResolved = !data?.resolved;
+  await supabase
+    .from("comment_threads")
+    .update({ resolved: newResolved, updated_at: new Date().toISOString() })
+    .eq("id", threadId);
+  return newResolved;
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from("comment_threads").delete().eq("id", id);
+}
+
+export async function deleteDocumentComments(documentId: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from("comment_threads").delete().eq("document_id", documentId);
 }
 
 // ========================================
 // AI Thread Functions
 // ========================================
 
-/**
- * Create a new AI collaboration thread (empty, ready for user prompt).
- * This thread will have isAIThread=true and a selected mode.
- */
-export function createAIThread(
+export async function createAIThread(
   documentId: string,
   highlightedText: string,
   mode: AskAIMode
-): CommentThread {
-  const now = Date.now();
-  const newThread: CommentThread = {
-    id: generateId(),
-    documentId,
-    highlightedText,
-    messages: [], // Start with no messages - user will send prompt
-    resolved: false,
-    createdAt: now,
-    updatedAt: now,
-    isAIThread: true,
-    aiMode: mode,
-  };
+): Promise<CommentThread> {
+  const supabase = createClient();
+  const userId = await getUserId();
 
-  const threads = readFromStorage();
-  threads.push(newThread);
-  writeToStorage(threads);
+  const { data: thread, error } = await supabase
+    .from("comment_threads")
+    .insert({
+      document_id: documentId,
+      user_id: userId,
+      highlighted_text: highlightedText,
+      resolved: false,
+      is_ai_thread: true,
+      ai_mode: mode,
+    })
+    .select()
+    .single();
+  if (error) throw error;
 
-  return newThread;
+  return dbToThread({ ...thread, messages: [] });
 }
 
-/**
- * Add a user prompt to an AI thread.
- */
-export function addUserPromptToAIThread(
+export async function addUserPromptToAIThread(
   threadId: string,
   prompt: string
-): CommentMessage | null {
-  const threads = readFromStorage();
-  const index = threads.findIndex((t) => t.id === threadId);
+): Promise<CommentMessage | null> {
+  const supabase = createClient();
+  const userId = await getUserId();
 
-  if (index === -1) return null;
+  const { data: thread } = await supabase
+    .from("comment_threads")
+    .select("document_id")
+    .eq("id", threadId)
+    .single();
+  if (!thread) return null;
 
-  const now = Date.now();
-  const newMessage: CommentMessage = {
-    id: generateId(),
-    content: prompt,
-    author: "user",
-    createdAt: now,
-    updatedAt: now,
-  };
+  const { data: message, error } = await supabase
+    .from("comment_messages")
+    .insert({
+      thread_id: threadId,
+      document_id: thread.document_id,
+      user_id: userId,
+      content: prompt,
+      author: "user",
+    })
+    .select()
+    .single();
+  if (error) return null;
 
-  threads[index].messages.push(newMessage);
-  threads[index].updatedAt = now;
+  await supabase
+    .from("comment_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
 
-  writeToStorage(threads);
-  return newMessage;
+  return dbToMessage(message);
 }
 
-/**
- * Add an AI response message to a thread.
- * Status can be "pending", "complete", or "error".
- */
-export function addAIMessageToThread(
+export async function addAIMessageToThread(
   threadId: string,
   content: string,
   status: "pending" | "complete" | "error" = "complete"
-): CommentMessage | null {
-  const threads = readFromStorage();
-  const index = threads.findIndex((t) => t.id === threadId);
+): Promise<CommentMessage | null> {
+  const supabase = createClient();
+  const userId = await getUserId();
 
-  if (index === -1) return null;
+  const { data: thread } = await supabase
+    .from("comment_threads")
+    .select("document_id")
+    .eq("id", threadId)
+    .single();
+  if (!thread) return null;
 
-  const now = Date.now();
-  const newMessage: CommentMessage = {
-    id: generateId(),
-    content,
-    author: "ai",
-    createdAt: now,
-    updatedAt: now,
-    status,
-  };
+  const { data: message, error } = await supabase
+    .from("comment_messages")
+    .insert({
+      thread_id: threadId,
+      document_id: thread.document_id,
+      user_id: userId,
+      content,
+      author: "ai",
+      status,
+    })
+    .select()
+    .single();
+  if (error) return null;
 
-  threads[index].messages.push(newMessage);
-  threads[index].updatedAt = now;
+  await supabase
+    .from("comment_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
 
-  writeToStorage(threads);
-  return newMessage;
+  return dbToMessage(message);
 }
 
-/**
- * Update an existing AI message (e.g., replace "Thinking..." placeholder with actual response).
- */
-export function updateAIMessage(
+export async function updateAIMessage(
   threadId: string,
   messageId: string,
   content: string,
   status: "pending" | "complete" | "error" = "complete"
-): void {
-  const threads = readFromStorage();
-  const threadIndex = threads.findIndex((t) => t.id === threadId);
-
-  if (threadIndex === -1) return;
-
-  const messageIndex = threads[threadIndex].messages.findIndex((m) => m.id === messageId);
-  if (messageIndex === -1) return;
-
-  const now = Date.now();
-  threads[threadIndex].messages[messageIndex] = {
-    ...threads[threadIndex].messages[messageIndex],
-    content,
-    status,
-    updatedAt: now,
-  };
-  threads[threadIndex].updatedAt = now;
-
-  writeToStorage(threads);
+): Promise<void> {
+  const supabase = createClient();
+  await supabase
+    .from("comment_messages")
+    .update({ content, status, updated_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .eq("thread_id", threadId);
+  await supabase
+    .from("comment_threads")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId);
 }
 
-/**
- * Update the AI mode for a thread (before user sends first prompt).
- */
-export function updateAIThreadMode(threadId: string, mode: AskAIMode): void {
-  const threads = readFromStorage();
-  const index = threads.findIndex((t) => t.id === threadId);
-
-  if (index === -1) return;
-
-  threads[index].aiMode = mode;
-  threads[index].updatedAt = Date.now();
-
-  writeToStorage(threads);
+export async function updateAIThreadMode(threadId: string, mode: AskAIMode): Promise<void> {
+  const supabase = createClient();
+  await supabase
+    .from("comment_threads")
+    .update({ ai_mode: mode, updated_at: new Date().toISOString() })
+    .eq("id", threadId);
 }

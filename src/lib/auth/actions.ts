@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export function isEduEmail(email: string): boolean {
+function isEduEmail(email: string): boolean {
   return email.toLowerCase().endsWith(".edu");
 }
 

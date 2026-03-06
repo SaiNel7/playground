@@ -21,9 +21,16 @@ interface BrainPanelProps {
   onClose: () => void;
 }
 
+const DEFAULT_BRAIN: ProjectBrain = {
+  goal: "",
+  constraints: [],
+  glossary: [],
+  decisions: [],
+};
+
 export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
-  const [brain, setBrain] = useState<ProjectBrain>(() => getBrain(projectId));
-  const [localGoal, setLocalGoal] = useState(brain.goal);
+  const [brain, setBrain] = useState<ProjectBrain>(DEFAULT_BRAIN);
+  const [localGoal, setLocalGoal] = useState("");
   const [newConstraint, setNewConstraint] = useState("");
   const [newGlossaryTerm, setNewGlossaryTerm] = useState("");
   const [newGlossaryDef, setNewGlossaryDef] = useState("");
@@ -33,11 +40,11 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
 
   // Load brain when panel opens or projectId changes
   useEffect(() => {
-    if (isOpen) {
-      const loadedBrain = getBrain(projectId);
+    if (!isOpen) return;
+    getBrain(projectId).then((loadedBrain) => {
       setBrain(loadedBrain);
       setLocalGoal(loadedBrain.goal);
-    }
+    });
   }, [isOpen, projectId]);
 
   // Debounced save for goal (typing doesn't feel laggy)
@@ -47,11 +54,11 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
         clearTimeout(saveTimeoutRef.current);
       }
 
-      saveTimeoutRef.current = setTimeout(() => {
-        // Get the latest brain state from localStorage to avoid stale closures
-        const currentBrain = getBrain(projectId);
+      saveTimeoutRef.current = setTimeout(async () => {
+        // Get the latest brain state to avoid stale closures
+        const currentBrain = await getBrain(projectId);
         const updated = { ...currentBrain, goal };
-        saveBrain(projectId, updated);
+        await saveBrain(projectId, updated);
         setBrain(updated);
       }, 600);
     },
@@ -64,22 +71,22 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
   };
 
   // Constraint handlers
-  const handleAddConstraint = () => {
+  const handleAddConstraint = async () => {
     if (!newConstraint.trim()) return;
-    const updated = addConstraint(projectId, newConstraint.trim());
+    const updated = await addConstraint(projectId, newConstraint.trim());
     setBrain(updated);
     setNewConstraint("");
   };
 
-  const handleRemoveConstraint = (index: number) => {
-    const updated = removeConstraint(projectId, index);
+  const handleRemoveConstraint = async (index: number) => {
+    const updated = await removeConstraint(projectId, index);
     setBrain(updated);
   };
 
   // Glossary handlers
-  const handleAddGlossaryTerm = () => {
+  const handleAddGlossaryTerm = async () => {
     if (!newGlossaryTerm.trim() || !newGlossaryDef.trim()) return;
-    const updated = addGlossaryTerm(
+    const updated = await addGlossaryTerm(
       projectId,
       newGlossaryTerm.trim(),
       newGlossaryDef.trim()
@@ -89,21 +96,21 @@ export function BrainPanel({ projectId, isOpen, onClose }: BrainPanelProps) {
     setNewGlossaryDef("");
   };
 
-  const handleRemoveGlossaryTerm = (index: number) => {
-    const updated = removeGlossaryTerm(projectId, index);
+  const handleRemoveGlossaryTerm = async (index: number) => {
+    const updated = await removeGlossaryTerm(projectId, index);
     setBrain(updated);
   };
 
   // Decision handlers
-  const handleAddDecision = () => {
+  const handleAddDecision = async () => {
     if (!newDecision.trim()) return;
-    const updated = addDecision(projectId, newDecision.trim());
+    const updated = await addDecision(projectId, newDecision.trim());
     setBrain(updated);
     setNewDecision("");
   };
 
-  const handleRemoveDecision = (index: number) => {
-    const updated = removeDecision(projectId, index);
+  const handleRemoveDecision = async (index: number) => {
+    const updated = await removeDecision(projectId, index);
     setBrain(updated);
   };
 

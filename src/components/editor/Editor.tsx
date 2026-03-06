@@ -115,11 +115,11 @@ export function Editor({
   });
 
   // Clean up orphaned marks (marks referencing deleted comments)
-  const cleanupOrphanedMarks = useCallback(() => {
+  const cleanupOrphanedMarks = useCallback(async () => {
     if (!editor) return;
 
     const { doc, tr } = editor.state;
-    const storedComments = getDocumentComments(documentId);
+    const storedComments = await getDocumentComments(documentId);
     const validCommentIds = new Set(storedComments.map((c) => c.id));
 
     let hasChanges = false;
@@ -145,7 +145,7 @@ export function Editor({
   }, [editor, documentId]);
 
   // Clean up orphaned comments (comments without text in editor)
-  const cleanupOrphanedComments = useCallback(() => {
+  const cleanupOrphanedComments = useCallback(async () => {
     if (!editor) return;
 
     const { doc } = editor.state;
@@ -164,17 +164,17 @@ export function Editor({
 
     // Find and delete orphaned comments
     // NOTE: Exclude AI threads from orphan cleanup since they don't have marks in the editor
-    const storedComments = getDocumentComments(documentId);
-    storedComments.forEach((comment) => {
+    const storedComments = await getDocumentComments(documentId);
+    for (const comment of storedComments) {
       // Only delete non-AI threads that don't have marks in the editor
       if (!comment.isAIThread && !activeCommentIds.has(comment.id)) {
-        deleteComment(comment.id);
+        await deleteComment(comment.id);
         onCommentDeleted(comment.id);
       }
-    });
+    }
 
     // Also clean up any orphaned marks
-    cleanupOrphanedMarks();
+    await cleanupOrphanedMarks();
   }, [editor, documentId, onCommentDeleted, cleanupOrphanedMarks]);
 
   // Debounced save function
@@ -184,8 +184,8 @@ export function Editor({
         clearTimeout(saveTimeoutRef.current);
       }
 
-      saveTimeoutRef.current = setTimeout(() => {
-        updateDocument(documentId, { content });
+      saveTimeoutRef.current = setTimeout(async () => {
+        await updateDocument(documentId, { content });
         onUpdate?.();
       }, 600);
 
@@ -226,18 +226,19 @@ export function Editor({
     if (!editor) return;
 
     isInitializedRef.current = false;
-    const doc = getDocument(documentId);
 
-    if (doc?.content) {
-      // Use emitUpdate: false to prevent triggering update handlers and polluting history
-      editor.commands.setContent(doc.content, { emitUpdate: false });
-    } else {
-      editor.commands.clearContent();
-    }
+    getDocument(documentId).then((doc) => {
+      if (doc?.content) {
+        // Use emitUpdate: false to prevent triggering update handlers and polluting history
+        editor.commands.setContent(doc.content, { emitUpdate: false });
+      } else {
+        editor.commands.clearContent();
+      }
 
-    setTimeout(() => {
-      isInitializedRef.current = true;
-    }, 0);
+      setTimeout(() => {
+        isInitializedRef.current = true;
+      }, 0);
+    });
   }, [editor, documentId]);
 
   // Cleanup timeouts on unmount

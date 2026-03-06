@@ -11,7 +11,6 @@ import {
   createDocument,
   deleteDocument,
   toggleStarDocument,
-  subscribeToChanges,
 } from "@/lib/store/documentStore";
 
 interface SidebarProps {
@@ -33,8 +32,8 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
   // Load documents from store
-  const loadDocuments = useCallback(() => {
-    const docs = getAllDocuments();
+  const loadDocuments = useCallback(async () => {
+    const docs = await getAllDocuments();
     setDocuments(docs);
     setIsLoaded(true);
   }, []);
@@ -42,10 +41,6 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
   // Load on mount
   useEffect(() => {
     loadDocuments();
-
-    // Subscribe to storage changes (cross-tab sync)
-    const unsubscribe = subscribeToChanges(loadDocuments);
-    return unsubscribe;
   }, [loadDocuments]);
 
   // Reload documents when pathname changes (new doc created)
@@ -63,8 +58,8 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
   }, [documents]);
 
   // Create new document and navigate
-  const handleNewDocument = () => {
-    const newDoc = createDocument({ title: "Untitled" });
+  const handleNewDocument = async () => {
+    const newDoc = await createDocument({ title: "Untitled" });
     router.push(`/doc/${newDoc.id}`);
   };
 
@@ -85,15 +80,15 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
 
   // Handle delete document
   const handleDeleteDocument = useCallback(
-    (docId: string) => {
+    async (docId: string) => {
       const isCurrentDoc = pathname === `/doc/${docId}`;
-      deleteDocument(docId);
-      loadDocuments();
+      await deleteDocument(docId);
+      await loadDocuments();
       closeContextMenu();
 
       // If deleting current document, navigate away
       if (isCurrentDoc) {
-        const remainingDocs = getAllDocuments();
+        const remainingDocs = await getAllDocuments();
         if (remainingDocs.length > 0) {
           router.push(`/doc/${remainingDocs[0].id}`);
         } else {
@@ -106,9 +101,9 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
 
   // Handle star/unstar document
   const handleToggleStar = useCallback(
-    (docId: string) => {
-      toggleStarDocument(docId);
-      loadDocuments();
+    async (docId: string) => {
+      await toggleStarDocument(docId);
+      await loadDocuments();
       closeContextMenu();
     },
     [loadDocuments, closeContextMenu]

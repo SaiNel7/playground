@@ -90,7 +90,7 @@ export function CommentPanel({
   const { editorMethods } = useEditorContext();
 
   // Get live data (text + position) from the editor and clean up orphaned threads
-  const refreshCommentData = useCallback(() => {
+  const refreshCommentData = useCallback(async () => {
     if (!editorMethods?.getAllCommentData) return;
 
     const data = editorMethods.getAllCommentData();
@@ -98,23 +98,23 @@ export function CommentPanel({
 
     // Check for orphaned threads (exist in storage but not in editor)
     // NOTE: Exclude AI threads from orphan cleanup since they don't have marks in the editor
-    const storedThreads = getDocumentComments(documentId);
+    const storedThreads = await getDocumentComments(documentId);
     const orphanedThreads = storedThreads.filter((thread) => !thread.isAIThread && !data[thread.id]);
 
     // Delete orphaned threads
     if (orphanedThreads.length > 0) {
-      orphanedThreads.forEach((thread) => {
-        deleteComment(thread.id);
+      for (const thread of orphanedThreads) {
+        await deleteComment(thread.id);
         onDeleteComment(thread.id);
-      });
+      }
       // Reload threads after cleanup
-      setThreads(getDocumentComments(documentId));
+      setThreads(await getDocumentComments(documentId));
     }
   }, [documentId, onDeleteComment, editorMethods]);
 
   // Load patches for all threads
-  const loadPatches = useCallback(() => {
-    const allPatches = getPatches(documentId);
+  const loadPatches = useCallback(async () => {
+    const allPatches = await getPatches(documentId);
     const patchMap: Record<string, AIPatch> = {};
     allPatches.forEach((patch) => {
       patchMap[patch.anchorId] = patch;
@@ -123,8 +123,8 @@ export function CommentPanel({
   }, [documentId]);
 
   // Load threads and position data
-  const loadThreads = useCallback(() => {
-    const docs = getDocumentComments(documentId);
+  const loadThreads = useCallback(async () => {
+    const docs = await getDocumentComments(documentId);
     setThreads(docs);
     // Small delay to ensure editor has updated
     setTimeout(refreshCommentData, 50);
@@ -187,10 +187,10 @@ export function CommentPanel({
   };
 
   // Handle adding a new thread
-  const handleAddThread = () => {
+  const handleAddThread = async () => {
     if (!pendingComment || !newCommentText.trim()) return;
 
-    const thread = createComment(
+    const thread = await createComment(
       documentId,
       newCommentText.trim(),
       pendingComment.text
@@ -202,17 +202,17 @@ export function CommentPanel({
     onAddComment();
     setNewCommentText("");
     setExpandedThreads((prev) => new Set([...Array.from(prev), thread.id]));
-    loadThreads();
+    await loadThreads();
   };
 
   // Handle adding a reply to a thread
-  const handleAddReply = (threadId: string) => {
+  const handleAddReply = async (threadId: string) => {
     const text = replyText[threadId]?.trim();
     if (!text) return;
 
-    addReplyToThread(threadId, text);
+    await addReplyToThread(threadId, text);
     setReplyText((prev) => ({ ...prev, [threadId]: "" }));
-    loadThreads();
+    await loadThreads();
   };
 
   // Handle editing a message
@@ -221,12 +221,12 @@ export function CommentPanel({
     setEditText(message.content);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingMessage || !editText.trim()) return;
-    updateMessage(editingMessage.threadId, editingMessage.messageId, editText.trim());
+    await updateMessage(editingMessage.threadId, editingMessage.messageId, editText.trim());
     setEditingMessage(null);
     setEditText("");
-    loadThreads();
+    await loadThreads();
   };
 
   const handleCancelEdit = () => {
@@ -235,8 +235,8 @@ export function CommentPanel({
   };
 
   // Handle deleting a message
-  const handleDeleteMessage = (threadId: string, messageId: string) => {
-    const threadDeleted = deleteMessage(threadId, messageId);
+  const handleDeleteMessage = async (threadId: string, messageId: string) => {
+    const threadDeleted = await deleteMessage(threadId, messageId);
 
     if (threadDeleted) {
       // Remove the comment mark in the editor
@@ -244,24 +244,24 @@ export function CommentPanel({
       onDeleteComment(threadId);
     }
 
-    loadThreads();
+    await loadThreads();
   };
 
   // Handle deleting an entire thread
-  const handleDeleteThread = (threadId: string) => {
-    deleteComment(threadId);
+  const handleDeleteThread = async (threadId: string) => {
+    await deleteComment(threadId);
 
     // Remove the comment mark in the editor
     editorMethods?.removeCommentMark(threadId);
 
     onDeleteComment(threadId);
-    loadThreads();
+    await loadThreads();
   };
 
   // Handle resolving/unresolving a thread
-  const handleToggleResolve = (threadId: string) => {
-    toggleResolveThread(threadId);
-    loadThreads();
+  const handleToggleResolve = async (threadId: string) => {
+    await toggleResolveThread(threadId);
+    await loadThreads();
   };
 
   // Toggle thread expansion
@@ -284,7 +284,7 @@ export function CommentPanel({
   };
 
   // Handle accepting a patch
-  const handleAcceptPatch = useCallback((threadId: string, patch: AIPatch) => {
+  const handleAcceptPatch = useCallback(async (threadId: string, patch: AIPatch) => {
     const editor = editorMethods?.getEditorInstance();
     if (!editor) {
       console.error("[Patch] Editor instance not available");
@@ -320,16 +320,16 @@ export function CommentPanel({
       .run();
 
     // Update patch status and mark thread as resolved
-    updatePatch(documentId, patch.id, { status: "accepted" });
-    toggleResolveThread(threadId);
+    await updatePatch(documentId, patch.id, { status: "accepted" });
+    await toggleResolveThread(threadId);
 
     // Reload patches to update UI
-    loadPatches();
-    loadThreads();
+    await loadPatches();
+    await loadThreads();
   }, [documentId, editorMethods, loadThreads, loadPatches]);
 
   // Handle rejecting a patch
-  const handleRejectPatch = useCallback((threadId: string, patch: AIPatch) => {
+  const handleRejectPatch = useCallback(async (threadId: string, patch: AIPatch) => {
     const editor = editorMethods?.getEditorInstance();
     if (!editor) {
       console.error("[Patch] Editor instance not available");
@@ -348,14 +348,14 @@ export function CommentPanel({
     }
 
     // Update patch status to rejected
-    updatePatch(documentId, patch.id, { status: "rejected" });
+    await updatePatch(documentId, patch.id, { status: "rejected" });
 
     // Mark the thread as resolved
-    toggleResolveThread(threadId);
+    await toggleResolveThread(threadId);
 
     // Reload patches to update UI
-    loadPatches();
-    loadThreads();
+    await loadPatches();
+    await loadThreads();
   }, [documentId, editorMethods, loadThreads, loadPatches]);
 
   // Handle sending AI prompt
@@ -370,14 +370,14 @@ export function CommentPanel({
       }
 
       // Add user's prompt to thread
-      addUserPromptToAIThread(threadId, prompt);
-      loadThreads();
+      await addUserPromptToAIThread(threadId, prompt);
+      await loadThreads();
 
       // Set loading state
       setAILoading((prev) => ({ ...prev, [threadId]: true }));
 
       // Add pending AI message
-      const aiMessage = addAIMessageToThread(threadId, "", "pending");
+      const aiMessage = await addAIMessageToThread(threadId, "", "pending");
       if (!aiMessage) {
         console.error("[AI] Failed to create AI message");
         setAILoading((prev) => ({ ...prev, [threadId]: false }));
@@ -385,13 +385,13 @@ export function CommentPanel({
       }
 
       // Reload threads to show the pending message
-      loadThreads();
+      await loadThreads();
 
       // Build context pack
       const contextPack = buildContextPack(editor, { includeFullDoc: false });
 
       // Get project brain
-      const brain = getBrain(documentId);
+      const brain = await getBrain(documentId);
 
       // Build AI request
       const request: AskAIRequest = {
@@ -424,18 +424,18 @@ export function CommentPanel({
       const thread = threads.find((t) => t.id === threadId);
 
       // Update AI message with response
-      updateAIMessage(threadId, aiMessage.id, data.message, "complete");
-      loadThreads();
+      await updateAIMessage(threadId, aiMessage.id, data.message, "complete");
+      await loadThreads();
 
       // If proposedText is provided (synthesize mode), create a patch
       if (data.proposedText && mode === "synthesize" && thread) {
-        createPatch({
+        await createPatch({
           documentId,
           anchorId: threadId,
           originalText: thread.highlightedText,
           proposedText: data.proposedText,
         });
-        loadPatches();
+        await loadPatches();
       }
     } catch (error: any) {
       console.error("[AI] Request failed:", error);
@@ -448,8 +448,8 @@ export function CommentPanel({
           const errorMessage = error.message?.includes("API returned")
             ? `AI request failed (${error.message}). Please check your API key and try again.`
             : "AI request failed. Please try again.";
-          updateAIMessage(threadId, aiMsg.id, errorMessage, "error");
-          loadThreads();
+          await updateAIMessage(threadId, aiMsg.id, errorMessage, "error");
+          await loadThreads();
         }
       }
     } finally {
