@@ -414,6 +414,14 @@ export function CommentPanel({
         body: JSON.stringify(request),
       });
 
+      if (response.status === 429) {
+        const errData = await response.json();
+        const msg = errData.message || "You've reached your daily AI request limit. Try again tomorrow.";
+        await updateAIMessage(threadId, aiMessage.id, msg, "error");
+        await loadThreads();
+        return;
+      }
+
       if (!response.ok) {
         throw new Error(`AI API returned ${response.status}`);
       }

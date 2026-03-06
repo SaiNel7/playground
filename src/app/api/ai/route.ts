@@ -30,6 +30,35 @@ const MAX_TOKENS_SYNTHESIZE = 2000; // Full rewrites with explanation
  */
 export async function POST(request: NextRequest) {
   try {
+    // Authenticate user
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Apply rate limit (15 requests per user per 24h)
+    const { success, limit, remaining, reset } = await aiRatelimit.limit(user.id);
+
+    if (!success) {
+      const resetDate = new Date(reset);
+      const resetHour = resetDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return NextResponse.json(
+        {
+          error: "rate_limit_exceeded",
+          message: `You've used all 15 daily AI requests. Resets at ${resetHour}.`,
+          limit,
+          remaining: 0,
+          reset,
+        },
+        { status: 429 }
+      );
+    }
+
     // Parse request body
     let body: unknown;
     try {
@@ -72,7 +101,10 @@ export async function POST(request: NextRequest) {
     // Call Anthropic API with timeout
     const response = await callAnthropicWithTimeout(prompts.system, prompts.user, req.mode);
 
-    return NextResponse.json(response, { status: 200 });
+    return NextResponse.json(response, {
+      status: 200,
+      headers: { "X-RateLimit-Remaining": String(remaining) },
+    });
   } catch (error: any) {
     console.error("[AI API] Unexpected error:", error);
 
