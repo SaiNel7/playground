@@ -21,12 +21,13 @@ import {
   Redo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getDocument, updateDocument } from "@/lib/store/documentStore";
+import { updateDocument } from "@/lib/store/documentStore";
 import { getDocumentComments, deleteComment } from "@/lib/store/commentStore";
 import { useEditorContext } from "@/lib/EditorContext";
 
 interface EditorProps {
   documentId: string;
+  initialContent?: Record<string, unknown>;
   onUpdate?: () => void;
   // Comment panel props (lifted state)
   isCommentPanelOpen: boolean;
@@ -42,6 +43,7 @@ interface EditorProps {
 
 export function Editor({
   documentId,
+  initialContent,
   onUpdate,
   isCommentPanelOpen,
   onToggleCommentPanel,
@@ -221,25 +223,22 @@ export function Editor({
     };
   }, [editor, saveContent, cleanupOrphanedMarks]);
 
-  // Load document content on mount
+  // Load document content on mount — content provided by parent, no extra fetch needed
   useEffect(() => {
     if (!editor) return;
 
     isInitializedRef.current = false;
 
-    getDocument(documentId).then((doc) => {
-      if (doc?.content) {
-        // Use emitUpdate: false to prevent triggering update handlers and polluting history
-        editor.commands.setContent(doc.content, { emitUpdate: false });
-      } else {
-        editor.commands.clearContent();
-      }
+    if (initialContent) {
+      editor.commands.setContent(initialContent, { emitUpdate: false });
+    } else {
+      editor.commands.clearContent();
+    }
 
-      setTimeout(() => {
-        isInitializedRef.current = true;
-      }, 0);
-    });
-  }, [editor, documentId]);
+    setTimeout(() => {
+      isInitializedRef.current = true;
+    }, 0);
+  }, [editor, documentId, initialContent]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {

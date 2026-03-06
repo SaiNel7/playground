@@ -35,6 +35,7 @@ export interface Database {
           stripe_customer_id?: string | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
       documents: {
         Row: {
@@ -61,6 +62,7 @@ export interface Database {
           starred?: boolean;
           updated_at?: string;
         };
+        Relationships: [];
       };
       project_brains: {
         Row: {
@@ -82,6 +84,7 @@ export interface Database {
           constraints?: string[];
           glossary?: Array<{ term: string; definition: string }>;
           decisions?: Array<{ text: string; createdAt: number }>;
+          updated_at?: string;
         };
         Update: {
           goal?: string;
@@ -90,6 +93,7 @@ export interface Database {
           decisions?: Array<{ text: string; createdAt: number }>;
           updated_at?: string;
         };
+        Relationships: [];
       };
       comment_threads: {
         Row: {
@@ -116,6 +120,7 @@ export interface Database {
           resolved?: boolean;
           updated_at?: string;
         };
+        Relationships: [];
       };
       comment_messages: {
         Row: {
@@ -143,6 +148,7 @@ export interface Database {
           status?: MessageStatus | null;
           updated_at?: string;
         };
+        Relationships: [];
       };
       ai_patches: {
         Row: {
@@ -169,7 +175,12 @@ export interface Database {
           status?: AIPatchStatus;
           updated_at?: string;
         };
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }

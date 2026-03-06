@@ -68,7 +68,7 @@ export async function createComment(
   const supabase = createClient();
   const userId = await getUserId();
 
-  const { data: thread, error: threadError } = await supabase
+  const { data: threadData, error: threadError } = await supabase
     .from("comment_threads")
     .insert({
       document_id: documentId,
@@ -80,6 +80,7 @@ export async function createComment(
     .select()
     .single();
   if (threadError) throw threadError;
+  const thread = threadData as { id: string; [key: string]: unknown };
 
   const { data: message, error: msgError } = await supabase
     .from("comment_messages")

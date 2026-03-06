@@ -46,7 +46,7 @@ export async function signInWithGoogle() {
     },
   });
 
-  if (error) return { error: error.message };
+  if (error) redirect(`${process.env.NEXT_PUBLIC_SITE_URL}/login?error=auth_failed`);
   if (data.url) redirect(data.url);
 }
 

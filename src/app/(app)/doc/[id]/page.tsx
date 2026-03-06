@@ -49,12 +49,15 @@ export default function DocPage({ params }: DocPageProps) {
     setCommentCount(comments.length);
   }, [params.id]);
 
-  // Load or create document on mount
+  // Load or create document on mount — fetch doc + comments in parallel
   useEffect(() => {
     (async () => {
-      let doc = await getDocument(params.id);
+      const [fetchedDoc, comments] = await Promise.all([
+        getDocument(params.id),
+        getDocumentComments(params.id),
+      ]);
 
-      // Auto-create document if it doesn't exist
+      let doc = fetchedDoc;
       if (!doc) {
         doc = await createDocument({ id: params.id, title: "Untitled" });
       }
@@ -63,9 +66,9 @@ export default function DocPage({ params }: DocPageProps) {
       setTitle(doc.title);
       setStarred(doc.starred || false);
       setLastEdited(doc.updatedAt);
-      await loadCommentCount();
+      setCommentCount(comments.length);
     })();
-  }, [params.id, loadCommentCount]);
+  }, [params.id]);
 
   // Debounced title save
   const saveTitle = useCallback(
@@ -166,7 +169,7 @@ export default function DocPage({ params }: DocPageProps) {
     if (remainingDocs.length > 0) {
       router.push(`/doc/${remainingDocs[0].id}`);
     } else {
-      router.push("/");
+      router.push("/app");
     }
   }, [params.id, router]);
 
@@ -247,6 +250,7 @@ export default function DocPage({ params }: DocPageProps) {
             {/* Editor */}
             <Editor
               documentId={params.id}
+              initialContent={document.content}
               onUpdate={handleEditorUpdate}
               isCommentPanelOpen={isCommentPanelOpen}
               onToggleCommentPanel={toggleCommentPanel}

@@ -790,7 +790,7 @@ function ThreadCard({
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => onToggleResolve(thread.id)}
-            disabled={patch && patch.status !== "open"}
+            disabled={!!(patch && patch.status !== "open")}
             className={cn(
               "p-1 rounded transition-colors",
               patch && patch.status !== "open"

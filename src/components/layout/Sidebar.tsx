@@ -92,7 +92,7 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
         if (remainingDocs.length > 0) {
           router.push(`/doc/${remainingDocs[0].id}`);
         } else {
-          router.push("/");
+          router.push("/app");
         }
       }
     },
@@ -151,7 +151,7 @@ export function Sidebar({ onOpenQuickSwitch }: SidebarProps) {
       {/* Workspace header */}
       <div className="p-3 border-b border-border">
         <Link
-          href="/"
+          href="/app"
           className="flex items-center px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer transition-colors inline-block"
         >
           <span className="text-sm font-medium text-foreground">WORKSHOP</span>

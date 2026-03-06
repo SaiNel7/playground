@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/signup", "/auth/callback"];
+const EXACT_PUBLIC_ROUTES = new Set(["/", "/login", "/signup"]);
+const PREFIX_PUBLIC_ROUTES = ["/auth/callback"];
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -33,7 +34,9 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
+  const isPublicRoute =
+    EXACT_PUBLIC_ROUTES.has(pathname) ||
+    PREFIX_PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
 
   // Unauthenticated user on a protected route → login
   if (!user && !isPublicRoute) {
@@ -42,10 +45,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Authenticated user hitting auth pages → home
+  // Authenticated user hitting public pages → app
   if (user && isPublicRoute && !pathname.startsWith("/auth/callback")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/app";
     return NextResponse.redirect(url);
   }
 
